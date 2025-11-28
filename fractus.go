@@ -112,9 +112,15 @@ func (f *Fractus) Encode(val any) ([]byte, error) {
 						if isFixedKind(k) {
 							f.writeFixed(&elem)
 						} else if k == reflect.String {
-							s := elem.String()
-							f.body = writeVarUint(f.body, uint64(len(s)))
-							f.body = append(f.body, s...)
+							if f.Opts.UnsafeStrings {
+								s := unsafe.Slice(unsafe.StringData(elem.String()), elem.Len())
+								f.body = writeVarUint(f.body, uint64(len(s)))
+								f.body = append(f.body, s...)
+							} else {
+								s := elem.String()
+								f.body = writeVarUint(f.body, uint64(len(s)))
+								f.body = append(f.body, s...)
+							}
 						} else if k == reflect.Slice && elem.Type().Elem().Kind() == reflect.Uint8 {
 							b := elem.Bytes()
 							f.body = writeVarUint(f.body, uint64(len(b)))
