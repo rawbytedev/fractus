@@ -19,7 +19,7 @@ func isFixedKind(k reflect.Kind) bool {
 	}
 }
 
-func fixedSize(k reflect.Kind) int {
+func FixedSize(k reflect.Kind) int {
 	switch k {
 	case reflect.Bool, reflect.Int8, reflect.Uint8:
 		return 1
