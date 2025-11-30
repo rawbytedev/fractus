@@ -284,7 +284,7 @@ func (f *Fractus) Decode(data []byte, out any) error {
 					for i := 0; i < int(cnt); i++ {
 						ev := slice.Index(i)
 						if isFixedKind(elemK) {
-							sz := fixedSize(elemK)
+							sz := FixedSize(elemK)
 							setFixed(ev, f.body[pos:pos+sz], elemK)
 							pos += sz
 						} else if elemK == reflect.String {
@@ -305,7 +305,7 @@ func (f *Fractus) Decode(data []byte, out any) error {
 				}
 			}
 		} else {
-			sz := fixedSize(field.kind)
+			sz := FixedSize(field.kind)
 			setFixed(fv, f.body[bodyPos:bodyPos+sz], field.kind)
 			bodyPos += sz
 		}
