@@ -135,17 +135,12 @@ func (f *HighPerfFractus) Encode(val any) ([]byte, error) {
 	// Write field count
 	f.buf = writeVarUint(f.buf, uint64(plan.fieldCount))
 
-	// Encode fields and collect offsets
-	varOffsets := make([]int, 0, plan.varCount)
-
 	for _, field := range plan.fields {
 		fieldValue := v.Field(field.idx)
 
 		if field.isVar {
-			// Record current body position 
-			varOffsets = append(varOffsets, len(f.body))
 
-			// Encode directly into body 
+			// Encode directly into body
 			switch field.kind {
 			case reflect.String:
 				if f.Opts.UnsafeStrings {
@@ -206,11 +201,6 @@ func (f *HighPerfFractus) Encode(val any) ([]byte, error) {
 			// Fixed field - encode directly to body
 			f.encodeFixedToBody(fieldValue, field.kind)
 		}
-	}
-
-	// Write variable offsets to header
-	for _, offset := range varOffsets {
-		f.buf = writeVarUint(f.buf, uint64(offset))
 	}
 
 	// Append body to buffer
@@ -316,15 +306,6 @@ func (f *HighPerfFractus) Decode(data []byte, out any) error {
 	if N == 0 {
 		return nil
 	}
-	// Read variable field offsets
-	varOffsets := make([]int, 0, plan.varCount)
-	for _, field := range plan.fields {
-		if field.isVar {
-			off, n := readVarUint(data[cursor:])
-			cursor += n
-			varOffsets = append(varOffsets, int(off))
-		}
-	}
 
 	// Set body reference
 	f.body = data[cursor:]
@@ -335,13 +316,12 @@ func (f *HighPerfFractus) Decode(data []byte, out any) error {
 	for _, field := range plan.fields {
 		fv := dst.Field(field.idx)
 		if field.isVar {
-			start := varOffsets[varIdx]
 			varIdx++
 			// Read length prefix
 			switch field.kind {
 			case reflect.String:
-				length, n := readVarUint(f.body[start:])
-				payload := f.body[start+n : start+n+int(length)]
+				length, n := readVarUint(f.body[bodyPos:])
+				payload := f.body[bodyPos+n : bodyPos+n+int(length)]
 				bodyPos += int(length) + n
 				if f.Opts.UnsafeStrings {
 					str := unsafe.String(&payload[0], len(payload))
@@ -351,8 +331,8 @@ func (f *HighPerfFractus) Decode(data []byte, out any) error {
 				}
 			case reflect.Slice:
 				elemKind := fv.Type().Elem().Kind()
-				count, n2 := readVarUint(f.body[start:])
-				pos := start + n2
+				count, n2 := readVarUint(f.body[bodyPos:])
+				pos := bodyPos + n2
 				slice := reflect.MakeSlice(fv.Type(), int(count), int(count))
 				bodyPos += n2
 				if f.Opts.UnsafePrimitives && isFixedKind(elemKind) && int(count) > 0 {

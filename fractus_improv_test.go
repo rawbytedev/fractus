@@ -108,7 +108,7 @@ func TestHStructPointer(t *testing.T) {
 	}
 	val := &StructPtr{Data: "Hello"}
 	res := &StructPtr{}
-	f := &Fractus{}
+	f := NewHighPerfFractus(SafeOptions{})
 	data, err := f.Encode(val)
 	require.NoError(t, err)
 	err = f.Decode(data, res)
@@ -142,19 +142,13 @@ func TestHEncodeListOfTypes(t *testing.T) {
 	f := NewHighPerfFractus(SafeOptions{})
 	condition := func(z NewStruct) bool {
 		data, err := f.Encode(z)
-		if err != nil {
-			t.Errorf("Error: %v", err)
-		}
 		require.NoError(t, err)
 		res := &NewStruct{}
 		err = f.Decode(data, res)
 		require.NoError(t, err)
-		if err != nil {
-			t.Errorf("Error: %v", err)
-		}
 		return assert.ObjectsAreEqual(z, *res)
 	}
-	err := quick.Check(condition, &quick.Config{MaxCount: 1})
+	err := quick.Check(condition, &quick.Config{})
 	if err != nil {
 		t.Errorf("Error: %v", err)
 	}
@@ -264,7 +258,7 @@ func BenchmarkHFractus(b *testing.B) {
 	}
 	z := NewStructint{Int1: 1, Int2: 2, Int3: 16, Int4: 18, Int5: 1586, Int6: 15262, Int7: 1547544565, Int9: 15484565656}
 	y := &NewStructint{}
-	f := &Fractus{}
+	f := NewHighPerfFractus(SafeOptions{})
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		res, _ := f.Encode(z) // 3allocs / res = []byte // 1 allocs
@@ -286,7 +280,7 @@ func BenchmarkHDoubleFractus(b *testing.B) {
 	z := NewStructint{Int1: 1, Int2: 2, Int3: 16, Int4: 18, Int5: 1586, Int6: 15262, Int7: 1547544565, Int9: 15484565656}
 	v := z
 	y := &NewStructint{}
-	f := &Fractus{}
+	f := NewHighPerfFractus(SafeOptions{})
 	res := []byte{}
 	b.ReportAllocs()
 	_, _ = f.Encode(z)
