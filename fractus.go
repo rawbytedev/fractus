@@ -112,9 +112,15 @@ func (f *Fractus) Encode(val any) ([]byte, error) {
 						if isFixedKind(k) {
 							f.writeFixed(&elem)
 						} else if k == reflect.String {
-							s := elem.String()
-							f.body = writeVarUint(f.body, uint64(len(s)))
-							f.body = append(f.body, s...)
+							if f.Opts.UnsafeStrings {
+								s := unsafe.Slice(unsafe.StringData(elem.String()), elem.Len())
+								f.body = writeVarUint(f.body, uint64(len(s)))
+								f.body = append(f.body, s...)
+							} else {
+								s := elem.String()
+								f.body = writeVarUint(f.body, uint64(len(s)))
+								f.body = append(f.body, s...)
+							}
 						} else if k == reflect.Slice && elem.Type().Elem().Kind() == reflect.Uint8 {
 							b := elem.Bytes()
 							f.body = writeVarUint(f.body, uint64(len(b)))
@@ -278,7 +284,7 @@ func (f *Fractus) Decode(data []byte, out any) error {
 					for i := 0; i < int(cnt); i++ {
 						ev := slice.Index(i)
 						if isFixedKind(elemK) {
-							sz := fixedSize(elemK)
+							sz := FixedSize(elemK)
 							setFixed(ev, f.body[pos:pos+sz], elemK)
 							pos += sz
 						} else if elemK == reflect.String {
@@ -299,7 +305,7 @@ func (f *Fractus) Decode(data []byte, out any) error {
 				}
 			}
 		} else {
-			sz := fixedSize(field.kind)
+			sz := FixedSize(field.kind)
 			setFixed(fv, f.body[bodyPos:bodyPos+sz], field.kind)
 			bodyPos += sz
 		}
