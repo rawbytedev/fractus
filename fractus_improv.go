@@ -2,10 +2,17 @@ package fractus
 
 import (
 	"encoding/binary"
+	"errors"
 	"math"
 	"reflect"
 	"sync"
 	"unsafe"
+)
+
+var (
+	ErrNotStruct    = errors.New("expected struct")
+	ErrNotStructPtr = errors.New("expected pointer to struct")
+	ErrUnsupported  = errors.New("unsupported type")
 )
 
 type SafeOptions struct {
