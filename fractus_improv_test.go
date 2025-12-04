@@ -10,21 +10,69 @@ import (
 )
 
 type MixedHStruct struct {
-	Val      string
-	Mod      int8
-	Data     string
-	Integers int16
-	Float3   float32
-	Float6   float64
+	Str     string
+	Int8    int8
+	bytes   byte
+	Int16   int16
+	Int32   int32
+	Int64   int64
+	Uint8   uint8
+	Uint16  uint16
+	Uint32  uint32
+	Uint64  uint64
+	Float32 float32
+	Float64 float64
+}
+type IntTypes struct {
+	Int8   int8
+	Int16  int16
+	Int32  int32
+	Int64  int64
+	Uint8  uint8
+	Uint16 uint16
+	Uint32 uint32
+	Uint64 uint64
 }
 
-func FuzzHEncodeDecode(f *testing.F) {
+func FuzzIntEncode(f *testing.F) {
+	f.Fuzz(fuzzIntTypes)
+}
+
+func FuzzMixedEncode(f *testing.F) {
 	f.Fuzz(fuzzHMixedTypes)
 }
-func fuzzHMixedTypes(t *testing.T, Val string, Mod int8, Data string, Integers int16, Float3 float32, Float6 float64) {
-	val := MixedHStruct{Val: Val, Mod: Mod, Data: Data, Integers: Integers, Float3: Float3, Float6: Float6}
+func fuzzIntTypes(t *testing.T, Int8 int8,
+	Int16 int16,
+	Int32 int32,
+	Int64 int64,
+	Uint8 uint8,
+	Uint16 uint16,
+	Uint32 uint32,
+	Uint64 uint64) {
+	val := IntTypes{Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64}
+	res := &IntTypes{}
+	f := NewHighPerfFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
+	data, err := f.Encode(val)
+	require.NoError(t, err)
+	err = f.Decode(data, res)
+	require.NoError(t, err)
+	require.EqualExportedValues(t, val, *res)
+}
+func fuzzHMixedTypes(t *testing.T, Str string,
+	Int8 int8,
+	bytes byte,
+	Int16 int16,
+	Int32 int32,
+	Int64 int64,
+	Uint8 uint8,
+	Uint16 uint16,
+	Uint32 uint32,
+	Uint64 uint64,
+	Float32 float32,
+	Float64 float64) {
+	val := MixedHStruct{Str, Int8, bytes, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Float32, Float64}
 	res := &MixedHStruct{}
-	f := NewHighPerfFractus(SafeOptions{})
+	f := NewHighPerfFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
 	data, err := f.Encode(val)
 	require.NoError(t, err)
 	err = f.Decode(data, res)
@@ -44,7 +92,7 @@ func TestHEncodeSimpleTypes(t *testing.T) {
 		Mod: int8(17), Integers: int16(12),
 		Float3: float32(12.3), Float6: float64(1236.2)}
 	res := &NewStruct{}
-	f := NewHighPerfFractus(SafeOptions{})
+	f := NewHighPerfFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
 	data, err := f.Encode(z)
 	require.NoError(t, err)
 	err = f.Decode(data, res)
@@ -63,7 +111,7 @@ func TestHConstant(t *testing.T) {
 		Int9  int64
 		Const bool
 	}
-	f := NewHighPerfFractus(SafeOptions{})
+	f := NewHighPerfFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
 	condition := func(z NewStructint) bool {
 		data, err := f.Encode(z)
 		require.NoError(t, err)

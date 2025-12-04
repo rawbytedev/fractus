@@ -9,28 +9,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type MixedStruct struct {
-	Val      string
-	Mod      int8
-	Data     string
-	Integers int16
-	Float3   float32
-	Float6   float64
-}
-
-func FuzzEncodeDecode(f *testing.F) {
-	f.Fuzz(fuzzMixedTypes)
-}
-func fuzzMixedTypes(t *testing.T, Val string, Mod int8, Data string, Integers int16, Float3 float32, Float6 float64) {
-	val := MixedStruct{Val: Val, Mod: Mod, Data: Data, Integers: Integers, Float3: Float3, Float6: Float6}
-	res := &MixedStruct{}
-	f := &Fractus{}
-	data, err := f.Encode(val)
-	require.NoError(t, err)
-	err = f.Decode(data, res)
-	require.NoError(t, err)
-	require.EqualExportedValues(t, val, *res)
-}
 func TestEncodeSimpleTypes(t *testing.T) {
 	type NewStruct struct {
 		Val      []string

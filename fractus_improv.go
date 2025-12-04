@@ -346,8 +346,12 @@ func (f *HighPerfFractus) Decode(in []byte, out any) (err error) {
 				payload := f.body[bodyPos+n : bodyPos+n+int(length)]
 				bodyPos += int(length) + n
 				if f.Opts.UnsafeStrings {
-					str := unsafe.String(&payload[0], len(payload))
-					fv.SetString(str)
+					if len(payload) > 0 {
+						str := unsafe.String(&payload[0], len(payload))
+						fv.SetString(str)
+					} else {
+						fv.SetString("")
+					}
 				} else {
 					fv.SetString(string(payload))
 				}
