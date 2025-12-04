@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"math"
 	"reflect"
+	"unsafe"
 )
 
 // classify field kinds
@@ -98,6 +99,13 @@ func varintLen(x uint64) int {
 	return n
 }
 
+func setUnsafeFixed(dst reflect.Value, b []byte, k reflect.Kind, sliceLen int) {
+	switch k {
+	case reflect.Uint16:
+		val := unsafe.Slice((*uint16)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
+	}
+}
 func setFixed(dst reflect.Value, b []byte, k reflect.Kind) {
 	switch k {
 	case reflect.Bool:

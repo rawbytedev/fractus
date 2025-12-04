@@ -355,20 +355,17 @@ func (f *HighPerfFractus) Decode(in []byte, out any) (err error) {
 				elemKind := fv.Type().Elem().Kind()
 				count, n2 := readVarUint(f.body[bodyPos:])
 				pos := bodyPos + n2
-				slice := reflect.MakeSlice(fv.Type(), int(count), int(count))
+
 				bodyPos += n2
 				if f.Opts.UnsafePrimitives && isFixedKind(elemKind) && int(count) > 0 {
 					// Zero-copy for primitive slices
-					panic("not implemented yet")
 					elemSize := FixedSize(elemKind)
 					requiredSize := int(count) * elemSize
 					if pos+requiredSize <= len(f.body) {
-						//length := FixedSize(elemKind)
-						bytePtr := unsafe.SliceData(f.body[bodyPos:])
-						ptr := unsafe.Pointer(bytePtr)
-						_ = ptr
-						fv.Set(slice)
+						setUnsafeFixed(fv, f.body[bodyPos:], elemKind, int(count))
 					} else {
+						//  allocate only when needed
+						slice := reflect.MakeSlice(fv.Type(), int(count), int(count))
 						// Fall back to safe decoding
 						for i := 0; i < int(count); i++ {
 							elem := slice.Index(i)
@@ -378,6 +375,8 @@ func (f *HighPerfFractus) Decode(in []byte, out any) (err error) {
 						fv.Set(slice)
 					}
 				} else {
+					//  allocate only when needed
+					slice := reflect.MakeSlice(fv.Type(), int(count), int(count))
 					// Safe element-by-element decoding
 					for i := 0; i < int(count); i++ {
 						elem := slice.Index(i)

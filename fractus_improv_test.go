@@ -230,13 +230,13 @@ func TestCompare(t *testing.T) {
 	type NewStruct struct {
 		Val      []string
 		Mod      []int8
-		Integers []int16
+		Integers []uint16
 		Float3   []float32
 		Float6   []float64
 	}
 	Val := []string{"azerty", "hello", "world", "random"}
 	z := NewStruct{Val: Val,
-		Mod: []int8{12, 10, 13, 0}, Integers: []int16{100, 250, 300},
+		Mod: []int8{12, 10, 13, 0}, Integers: []uint16{100, 250, 300},
 		Float3: []float32{12.13, 16.23, 75.1}, Float6: []float64{100.5, 165.63, 153.5}}
 	//y := &NewStruct{}
 	f := NewHighPerfFractus(SafeOptions{UnsafePrimitives: true, UnsafeStrings: true})
@@ -244,6 +244,22 @@ func TestCompare(t *testing.T) {
 	r := NewHighPerfFractus(SafeOptions{})
 	rres, _ := r.Encode(z)
 	assert.Equal(t, res, rres)
+}
+func TestCompares(t *testing.T) {
+	type NewStruct struct {
+		Integers []uint16
+	}
+
+	z := NewStruct{Integers: []uint16{100, 250, 300}}
+	y := &NewStruct{}
+	f := NewHighPerfFractus(SafeOptions{UnsafePrimitives: true, UnsafeStrings: true})
+	res, _ := f.Encode(z)
+	r := NewHighPerfFractus(SafeOptions{})
+	rres, _ := r.Encode(z)
+	assert.Equal(t, res, rres)
+	err := f.Decode(res, y)
+	assert.NoError(t, err)
+	assert.EqualExportedValues(t, z, *y)
 }
 func BenchmarkHUnsafeDecoding(b *testing.B) {
 	type NewStruct struct {
