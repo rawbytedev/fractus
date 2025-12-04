@@ -363,7 +363,8 @@ func (f *HighPerfFractus) Decode(in []byte, out any) (err error) {
 					requiredSize := int(count) * elemSize
 					if pos+requiredSize <= len(f.body) {
 						setUnsafeFixed(fv, f.body[bodyPos:], elemKind, int(count))
-					} else {
+						pos += requiredSize
+					} else { // fallback
 						//  allocate only when needed
 						slice := reflect.MakeSlice(fv.Type(), int(count), int(count))
 						// Fall back to safe decoding
@@ -374,6 +375,7 @@ func (f *HighPerfFractus) Decode(in []byte, out any) (err error) {
 						}
 						fv.Set(slice)
 					}
+					bodyPos += requiredSize
 				} else {
 					//  allocate only when needed
 					slice := reflect.MakeSlice(fv.Type(), int(count), int(count))

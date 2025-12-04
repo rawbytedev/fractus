@@ -274,7 +274,7 @@ func BenchmarkHUnsafeDecoding(b *testing.B) {
 		Mod: []int8{12, 10, 13, 0}, Integers: []int16{100, 250, 300},
 		Float3: []float32{12.13, 16.23, 75.1}, Float6: []float64{100.5, 165.63, 153.5}}
 	y := &NewStruct{}
-	f := NewHighPerfFractus(SafeOptions{UnsafePrimitives: true, UnsafeStrings: true})
+	f := NewHighPerfFractus(SafeOptions{UnsafePrimitives: false, UnsafeStrings: true})
 	b.ReportAllocs()
 	res, _ := f.Encode(z)
 	for i := 0; i < b.N; i++ {

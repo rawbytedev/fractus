@@ -34,53 +34,6 @@ func FixedSize(k reflect.Kind) int {
 		return -1
 	}
 }
-func writeFixed(dst []byte, v reflect.Value) []byte {
-	switch v.Kind() {
-	case reflect.Bool:
-		if v.Bool() {
-			return append(dst, 1)
-		}
-		return append(dst, 0)
-	case reflect.Int8:
-		return append(dst, byte(v.Int()))
-	case reflect.Uint8:
-		return append(dst, byte(v.Uint()))
-	case reflect.Int16:
-		tmp := make([]byte, 2)
-		binary.LittleEndian.PutUint16(tmp, uint16(v.Int()))
-		return append(dst, tmp...)
-	case reflect.Uint16:
-		tmp := make([]byte, 2)
-		binary.LittleEndian.PutUint16(tmp, uint16(v.Uint()))
-		return append(dst, tmp...)
-	case reflect.Int32:
-		tmp := make([]byte, 4)
-		binary.LittleEndian.PutUint32(tmp, uint32(v.Int()))
-		return append(dst, tmp...)
-	case reflect.Uint32:
-		tmp := make([]byte, 4)
-		binary.LittleEndian.PutUint32(tmp, uint32(v.Uint()))
-		return append(dst, tmp...)
-	case reflect.Int64:
-		tmp := make([]byte, 8)
-		binary.LittleEndian.PutUint64(tmp, uint64(v.Int()))
-		return append(dst, tmp...)
-	case reflect.Uint64:
-		tmp := make([]byte, 8)
-		binary.LittleEndian.PutUint64(tmp, v.Uint())
-		return append(dst, tmp...)
-	case reflect.Float32:
-		tmp := make([]byte, 4)
-		binary.LittleEndian.PutUint32(tmp, math.Float32bits(float32(v.Float())))
-		return append(dst, tmp...)
-	case reflect.Float64:
-		tmp := make([]byte, 8)
-		binary.LittleEndian.PutUint64(tmp, math.Float64bits(v.Float()))
-		return append(dst, tmp...)
-	default:
-		panic(ErrUnsupported)
-	}
-}
 
 func writeVarUint(buf []byte, x uint64) []byte {
 	for x >= 0x80 {
@@ -90,19 +43,41 @@ func writeVarUint(buf []byte, x uint64) []byte {
 	return append(buf, byte(x))
 }
 
-func varintLen(x uint64) int {
-	n := 1
-	for x >= 0x80 {
-		n++
-		x >>= 7
-	}
-	return n
-}
-
+// set fields using unsafe
 func setUnsafeFixed(dst reflect.Value, b []byte, k reflect.Kind, sliceLen int) {
 	switch k {
+	case reflect.Bool:
+		val := unsafe.Slice((*bool)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
+	case reflect.Int8:
+		val := unsafe.Slice((*int8)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
+	case reflect.Uint8:
+		val := unsafe.Slice((*uint8)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
+	case reflect.Int16:
+		val := unsafe.Slice((*int16)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
 	case reflect.Uint16:
 		val := unsafe.Slice((*uint16)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
+	case reflect.Int32:
+		val := unsafe.Slice((*int32)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
+	case reflect.Uint32:
+		val := unsafe.Slice((*uint32)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
+	case reflect.Int64:
+		val := unsafe.Slice((*int64)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
+	case reflect.Uint64:
+		val := unsafe.Slice((*uint64)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
+	case reflect.Float32:
+		val := unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), sliceLen)
+		dst.Set(reflect.ValueOf(val))
+	case reflect.Float64:
+		val := unsafe.Slice((*float64)(unsafe.Pointer(&b[0])), sliceLen)
 		dst.Set(reflect.ValueOf(val))
 	}
 }
@@ -144,8 +119,4 @@ func readVarUint(b []byte) (uint64, int) {
 		s += 7
 	}
 	return 0, 0
-}
-
-func bitPresent(p []byte, idx int) bool {
-	return p[idx/8]&(1<<(uint(idx)%8)) != 0
 }
