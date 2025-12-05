@@ -32,7 +32,7 @@ func main() {
 	z := NewStruct{Val: Val,
 		Mod: []int8{12, 10, 13, 0}, Integers: []int16{100, 250, 300},
 		Float3: []float32{12.13, 16.23, 75.1}, Float6: []float64{100.5, 165.63, 153.5}}
-	y := &fractus.Fractus{Opts: fractus.Options{UnsafeStrings: true}}
+	y := fractus.NewHighPerfFractus(fractus.SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
 	for i := 0; i < 10000; i++ {
 		data, _ := y.Encode(z)
 		res := &NewStruct{}

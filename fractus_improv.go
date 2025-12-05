@@ -2,10 +2,17 @@ package fractus
 
 import (
 	"encoding/binary"
+	"errors"
 	"math"
 	"reflect"
 	"sync"
 	"unsafe"
+)
+
+var (
+	ErrNotStruct    = errors.New("expected struct")
+	ErrNotStructPtr = errors.New("expected pointer to struct")
+	ErrUnsupported  = errors.New("unsupported type")
 )
 
 type SafeOptions struct {
@@ -19,8 +26,8 @@ type HighPerfFractus struct {
 	plan    map[reflect.Type]*HFieldPlan
 	mu      sync.RWMutex
 	scratch []byte
-	buf     []byte // Reusable buffer
-	body    []byte // Reusable buffer
+	buf     []byte
+	body    []byte
 }
 
 type HFieldPlan struct {
@@ -38,6 +45,8 @@ type HFieldInfo struct {
 	alignment int
 }
 
+// NewHighPerfFractus returns a new HighPerfFractus with options
+// HighPerfFractus can be used for both encoding and decoding
 func NewHighPerfFractus(opts SafeOptions) *HighPerfFractus {
 	return &HighPerfFractus{
 		Opts:    opts,
@@ -46,6 +55,10 @@ func NewHighPerfFractus(opts SafeOptions) *HighPerfFractus {
 	}
 }
 
+// getPlan return a FieldPlan
+// FieldPlans are used internally
+// and not expected to be used externally
+// It is concurrent safe
 func (f *HighPerfFractus) getPlan(t reflect.Type) *HFieldPlan {
 	f.mu.RLock()
 	if plan, ok := f.plan[t]; ok {
@@ -102,6 +115,7 @@ func (f *HighPerfFractus) getPlan(t reflect.Type) *HFieldPlan {
 	return plan
 }
 
+// Reset clears all buffer used during encoding/decoding
 func (f *HighPerfFractus) Reset() {
 	if f.buf != nil {
 		f.buf = f.buf[:0]
@@ -111,20 +125,27 @@ func (f *HighPerfFractus) Reset() {
 	}
 }
 
-func (f *HighPerfFractus) Encode(val any) ([]byte, error) {
-	v := reflect.ValueOf(val)
+// Encode turns the value provided into a byte slice(Fractus format binary)
+// The binary reflect the value encoded
+// only struct are accepted, only exported values are encoded
+func (f *HighPerfFractus) Encode(in any) (out []byte, err error) {
+	v := reflect.ValueOf(in)
+	// basics checks
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
+	// only accept structs
 	if v.Kind() != reflect.Struct {
 		return nil, ErrNotStruct
 	}
 
 	t := v.Type()
+	// retrieve plan
 	plan := f.getPlan(t)
-
 	estimatedSize := 16 + plan.fixedSize + (plan.varCount * 32) // Base + fixed + var
-	f.Reset()
+	f.Reset()                                                   // reset buffer
+
+	// increase buffers size if needed
 	if cap(f.buf) < estimatedSize {
 		f.buf = make([]byte, 0, estimatedSize)
 	}
@@ -132,18 +153,19 @@ func (f *HighPerfFractus) Encode(val any) ([]byte, error) {
 		f.body = make([]byte, 0, estimatedSize)
 	}
 
-	// Write field count
+	// Write number of field discovered
 	f.buf = writeVarUint(f.buf, uint64(plan.fieldCount))
 
+	// Encoding each fields
 	for _, field := range plan.fields {
 		fieldValue := v.Field(field.idx)
-
 		if field.isVar {
-
 			// Encode directly into body
 			switch field.kind {
+			// string
 			case reflect.String:
 				if f.Opts.UnsafeStrings {
+					// unsafe encoding of strings
 					str := fieldValue.String()
 					strData := unsafe.Slice(unsafe.StringData(str), len(str))
 					f.body = writeVarUint(f.body, uint64(len(strData)))
@@ -153,19 +175,21 @@ func (f *HighPerfFractus) Encode(val any) ([]byte, error) {
 					f.body = writeVarUint(f.body, uint64(len(str)))
 					f.body = append(f.body, str...)
 				}
-
+			// slices
 			case reflect.Slice:
 				elemKind := fieldValue.Type().Elem().Kind()
 				length := fieldValue.Len()
 				f.body = writeVarUint(f.body, uint64(length))
 
 				if f.Opts.UnsafePrimitives && isFixedKind(elemKind) && length > 0 {
-					// Zero-copy for primitive slices
+					// unsafe encoding for slices of fixed Size
 					if !f.Opts.CheckAlignment || f.checkSliceAlignment(fieldValue, elemKind) {
-						sliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(fieldValue.UnsafeAddr()))
-						elemSize := FixedSize(elemKind)
-						byteSlice := unsafe.Slice((*byte)(unsafe.Pointer(sliceHeader.Data)), length*elemSize)
-						f.body = append(f.body, byteSlice...)
+						fslice := fieldValue.Slice(0, fieldValue.Len())
+						if fslice.Len() != 0 {
+							elemSize := FixedSize(elemKind)
+							byteSlice := unsafe.Slice((*byte)(unsafe.Pointer(fslice.Pointer())), length*elemSize)
+							f.body = append(f.body, byteSlice...)
+						}
 					} else {
 						// Safe copy for unaligned data
 						for i := 0; i < length; i++ {
@@ -208,6 +232,8 @@ func (f *HighPerfFractus) Encode(val any) ([]byte, error) {
 	return f.buf, nil
 }
 
+// / *** Merging both into a single function is possible
+// encodes value based on their types
 func (f *HighPerfFractus) encodeFixedToBody(v reflect.Value, kind reflect.Kind) {
 	switch kind {
 	case reflect.Bool:
@@ -249,6 +275,7 @@ func (f *HighPerfFractus) encodeFixedToBody(v reflect.Value, kind reflect.Kind) 
 	}
 }
 
+// encodes value based on their types
 func (f *HighPerfFractus) encodeFixedToBuffer(v reflect.Value, kind reflect.Kind, dst []byte) []byte {
 	switch kind {
 	case reflect.Bool:
@@ -289,9 +316,11 @@ func (f *HighPerfFractus) encodeFixedToBuffer(v reflect.Value, kind reflect.Kind
 	}
 }
 
-func (f *HighPerfFractus) Decode(data []byte, out any) error {
+// / ***
+// Decode turns the provided byte slice into value
+// The type of the decoded values should be compatible with the respective values in out.
+func (f *HighPerfFractus) Decode(in []byte, out any) (err error) {
 	f.Reset()
-
 	v := reflect.ValueOf(out)
 	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Struct {
 		return ErrNotStructPtr
@@ -302,13 +331,13 @@ func (f *HighPerfFractus) Decode(data []byte, out any) error {
 	plan := f.getPlan(t)
 
 	// Read field count
-	N, cursor := readVarUint(data)
+	N, cursor := readVarUint(in)
 	if N == 0 {
 		return nil
 	}
 
 	// Set body reference
-	f.body = data[cursor:]
+	f.body = in[cursor:]
 	bodyPos := 0
 	var varIdx int
 
@@ -324,8 +353,12 @@ func (f *HighPerfFractus) Decode(data []byte, out any) error {
 				payload := f.body[bodyPos+n : bodyPos+n+int(length)]
 				bodyPos += int(length) + n
 				if f.Opts.UnsafeStrings {
-					str := unsafe.String(&payload[0], len(payload))
-					fv.SetString(str)
+					if len(payload) > 0 {
+						str := unsafe.String(&payload[0], len(payload))
+						fv.SetString(str)
+					} else {
+						fv.SetString("")
+					}
 				} else {
 					fv.SetString(string(payload))
 				}
@@ -333,19 +366,18 @@ func (f *HighPerfFractus) Decode(data []byte, out any) error {
 				elemKind := fv.Type().Elem().Kind()
 				count, n2 := readVarUint(f.body[bodyPos:])
 				pos := bodyPos + n2
-				slice := reflect.MakeSlice(fv.Type(), int(count), int(count))
+
 				bodyPos += n2
 				if f.Opts.UnsafePrimitives && isFixedKind(elemKind) && int(count) > 0 {
 					// Zero-copy for primitive slices
 					elemSize := FixedSize(elemKind)
 					requiredSize := int(count) * elemSize
 					if pos+requiredSize <= len(f.body) {
-						sliceHeader := (*reflect.SliceHeader)(unsafe.Pointer(slice.UnsafeAddr()))
-						sliceHeader.Data = uintptr(unsafe.Pointer(&f.body[pos]))
-						sliceHeader.Len = int(count)
-						sliceHeader.Cap = int(count)
-						fv.Set(slice)
-					} else {
+						setUnsafeFixed(fv, f.body[bodyPos:], elemKind, int(count))
+						pos += requiredSize
+					} else { // fallback
+						//  allocate only when needed
+						slice := reflect.MakeSlice(fv.Type(), int(count), int(count))
 						// Fall back to safe decoding
 						for i := 0; i < int(count); i++ {
 							elem := slice.Index(i)
@@ -354,7 +386,10 @@ func (f *HighPerfFractus) Decode(data []byte, out any) error {
 						}
 						fv.Set(slice)
 					}
+					bodyPos += requiredSize
 				} else {
+					//  allocate only when needed
+					slice := reflect.MakeSlice(fv.Type(), int(count), int(count))
 					// Safe element-by-element decoding
 					for i := 0; i < int(count); i++ {
 						elem := slice.Index(i)
@@ -392,7 +427,8 @@ func (f *HighPerfFractus) Decode(data []byte, out any) error {
 	return nil
 }
 
-// Alignment checking
+// Checks alignement to avoid common issues
+// internal function
 func (f *HighPerfFractus) checkSliceAlignment(v reflect.Value, elemKind reflect.Kind) bool {
 	if v.Len() == 0 {
 		return true
@@ -402,6 +438,8 @@ func (f *HighPerfFractus) checkSliceAlignment(v reflect.Value, elemKind reflect.
 	return addr%uintptr(alignment) == 0
 }
 
+// getAlignment return the size of the type(fixed size types)
+// internal
 func getAlignment(kind reflect.Kind) int {
 	switch kind {
 	case reflect.Int8, reflect.Uint8, reflect.Bool:
@@ -418,6 +456,8 @@ func getAlignment(kind reflect.Kind) int {
 }
 
 // SafeDecoder for memory lifetime management
+// Ensure that Decoding using unsafe doesn't
+// affect values
 type SafeDecoder struct {
 	fractus *HighPerfFractus
 	payload []byte
