@@ -21,23 +21,26 @@ type SafeOptions struct {
 	CheckAlignment   bool
 }
 
-type HighPerfFractus struct {
-	Opts    SafeOptions
-	plan    map[reflect.Type]*HFieldPlan
-	mu      sync.RWMutex
+type Fractus struct {
+	// Opts controls unsafe behaviour (zero-copy) and alignment checks.
+	Opts SafeOptions
+	// plan stores per-type field metadata to avoid repeated reflection.
+	plan map[reflect.Type]*FieldPlan
+	mu   sync.RWMutex
+	// scratch is an 8-byte buffer reused for fixed-size encodings.
 	scratch []byte
 	buf     []byte
 	body    []byte
 }
 
-type HFieldPlan struct {
+type FieldPlan struct {
 	fieldCount int
 	varCount   int
 	fixedSize  int
-	fields     []HFieldInfo
+	fields     []FieldInfo
 }
 
-type HFieldInfo struct {
+type FieldInfo struct {
 	idx       int
 	kind      reflect.Kind
 	isVar     bool
@@ -45,21 +48,26 @@ type HFieldInfo struct {
 	alignment int
 }
 
-// NewHighPerfFractus returns a new HighPerfFractus with options
-// HighPerfFractus can be used for both encoding and decoding
-func NewHighPerfFractus(opts SafeOptions) *HighPerfFractus {
-	return &HighPerfFractus{
+// NewFractus constructs a new Fractus encoder/decoder.
+// Fractus can be used for both encoding and decoding.
+// Provide SafeOptions to opt into unsafe, zero-copy modes.
+func NewFractus(opts SafeOptions) *Fractus {
+	return &Fractus{
 		Opts:    opts,
-		plan:    make(map[reflect.Type]*HFieldPlan),
+		plan:    make(map[reflect.Type]*FieldPlan),
 		scratch: make([]byte, 8),
 	}
 }
 
 // getPlan return a FieldPlan
+// getPlan inspects type `t` and returns a cached FieldPlan.
 // FieldPlans are used internally
 // and not expected to be used externally
 // It is concurrent safe
-func (f *HighPerfFractus) getPlan(t reflect.Type) *HFieldPlan {
+// getPlan inspects type `t` and returns a cached FieldPlan.
+// It is safe for concurrent use: readers take the RLock and writers
+// populate the map only once per type.
+func (f *Fractus) getPlan(t reflect.Type) *FieldPlan {
 	f.mu.RLock()
 	if plan, ok := f.plan[t]; ok {
 		f.mu.RUnlock()
@@ -75,7 +83,7 @@ func (f *HighPerfFractus) getPlan(t reflect.Type) *HFieldPlan {
 		return plan
 	}
 
-	plan := &HFieldPlan{}
+	plan := &FieldPlan{}
 	fixedSize := 0
 	varCount := 0
 
@@ -90,7 +98,7 @@ func (f *HighPerfFractus) getPlan(t reflect.Type) *HFieldPlan {
 		size := FixedSize(kind)
 		alignment := getAlignment(kind)
 
-		fieldInfo := HFieldInfo{
+		fieldInfo := FieldInfo{
 			idx:       i,
 			kind:      kind,
 			isVar:     isVar,
@@ -116,7 +124,8 @@ func (f *HighPerfFractus) getPlan(t reflect.Type) *HFieldPlan {
 }
 
 // Reset clears all buffer used during encoding/decoding
-func (f *HighPerfFractus) Reset() {
+// Reset clears internal buffers used during encode/decode so they can be reused.
+func (f *Fractus) Reset() {
 	if f.buf != nil {
 		f.buf = f.buf[:0]
 	}
@@ -128,7 +137,10 @@ func (f *HighPerfFractus) Reset() {
 // Encode turns the value provided into a byte slice(Fractus format binary)
 // The binary reflect the value encoded
 // only struct are accepted, only exported values are encoded
-func (f *HighPerfFractus) Encode(in any) (out []byte, err error) {
+// Encode serializes the provided struct value into Fractus binary format.
+// Only exported struct fields are encoded. Caller may enable zero-copy
+// modes via `Opts` but must then ensure the source buffer remains live.
+func (f *Fractus) Encode(in any) (out []byte, err error) {
 	v := reflect.ValueOf(in)
 	// basics checks
 	if v.Kind() == reflect.Ptr {
@@ -165,7 +177,7 @@ func (f *HighPerfFractus) Encode(in any) (out []byte, err error) {
 			// string
 			case reflect.String:
 				if f.Opts.UnsafeStrings {
-					// unsafe encoding of strings
+					// unsafe encoding of strings (zero-copy from string header)
 					str := fieldValue.String()
 					strData := unsafe.Slice(unsafe.StringData(str), len(str))
 					f.body = writeVarUint(f.body, uint64(len(strData)))
@@ -182,7 +194,7 @@ func (f *HighPerfFractus) Encode(in any) (out []byte, err error) {
 				f.body = writeVarUint(f.body, uint64(length))
 
 				if f.Opts.UnsafePrimitives && isFixedKind(elemKind) && length > 0 {
-					// unsafe encoding for slices of fixed Size
+					// unsafe encoding for slices of fixed-size primitives: attempt zero-copy
 					if !f.Opts.CheckAlignment || f.checkSliceAlignment(fieldValue, elemKind) {
 						fslice := fieldValue.Slice(0, fieldValue.Len())
 						if fslice.Len() != 0 {
@@ -198,7 +210,7 @@ func (f *HighPerfFractus) Encode(in any) (out []byte, err error) {
 						}
 					}
 				} else {
-					// Encode each element
+					// Encode each element safely
 					for i := 0; i < length; i++ {
 						elem := fieldValue.Index(i)
 						if isFixedKind(elemKind) {
@@ -234,7 +246,9 @@ func (f *HighPerfFractus) Encode(in any) (out []byte, err error) {
 
 // / *** Merging both into a single function is possible
 // encodes value based on their types
-func (f *HighPerfFractus) encodeFixedToBody(v reflect.Value, kind reflect.Kind) {
+// encodeFixedToBody encodes a fixed-size value directly into the current body buffer.
+// This method reuses the small `scratch` buffer to avoid allocations for numeric types.
+func (f *Fractus) encodeFixedToBody(v reflect.Value, kind reflect.Kind) {
 	switch kind {
 	case reflect.Bool:
 		if v.Bool() {
@@ -276,7 +290,9 @@ func (f *HighPerfFractus) encodeFixedToBody(v reflect.Value, kind reflect.Kind) 
 }
 
 // encodes value based on their types
-func (f *HighPerfFractus) encodeFixedToBuffer(v reflect.Value, kind reflect.Kind, dst []byte) []byte {
+// encodeFixedToBuffer encodes a fixed-size value and returns the destination slice.
+// This is used for element-by-element encoding into a temporary buffer.
+func (f *Fractus) encodeFixedToBuffer(v reflect.Value, kind reflect.Kind, dst []byte) []byte {
 	switch kind {
 	case reflect.Bool:
 		if v.Bool() {
@@ -319,7 +335,11 @@ func (f *HighPerfFractus) encodeFixedToBuffer(v reflect.Value, kind reflect.Kind
 // / ***
 // Decode turns the provided byte slice into value
 // The type of the decoded values should be compatible with the respective values in out.
-func (f *HighPerfFractus) Decode(in []byte, out any) (err error) {
+// Decode reads a Fractus-encoded byte slice into the provided struct pointer.
+// If unsafe modes are enabled decoded strings/slices may alias the original
+// input buffer; the caller must ensure the input remains valid while values
+// are used. For a safe wrapper that retains the payload, use `SafeDecoder`.
+func (f *Fractus) Decode(in []byte, out any) (err error) {
 	f.Reset()
 	v := reflect.ValueOf(out)
 	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Struct {
@@ -429,7 +449,10 @@ func (f *HighPerfFractus) Decode(in []byte, out any) (err error) {
 
 // Checks alignement to avoid common issues
 // internal function
-func (f *HighPerfFractus) checkSliceAlignment(v reflect.Value, elemKind reflect.Kind) bool {
+// checkSliceAlignment returns true when the slice's first element address is
+// aligned for the element kind. This is required before performing zero-copy
+// conversions from []T to []byte.
+func (f *Fractus) checkSliceAlignment(v reflect.Value, elemKind reflect.Kind) bool {
 	if v.Len() == 0 {
 		return true
 	}
@@ -458,15 +481,16 @@ func getAlignment(kind reflect.Kind) int {
 // SafeDecoder for memory lifetime management
 // Ensure that Decoding using unsafe doesn't
 // affect values
+// SafeDecoder keeps a reference to the payload to ensure any zero-copy
+// references produced by `Fractus.Decode` remain valid for the lifetime of
+// the SafeDecoder value.
 type SafeDecoder struct {
-	fractus *HighPerfFractus
-	payload []byte
+	fractus *Fractus
+	payload []byte // keep reference to prevent GC of source
 }
 
-func NewSafeDecoder(fractus *HighPerfFractus) *SafeDecoder {
-	return &SafeDecoder{
-		fractus: fractus,
-	}
+func NewSafeDecoder(fractus *Fractus) *SafeDecoder {
+	return &SafeDecoder{fractus: fractus}
 }
 
 func (s *SafeDecoder) Decode(data []byte, out any) error {

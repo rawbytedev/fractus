@@ -21,6 +21,8 @@ func isFixedKind(k reflect.Kind) bool {
 }
 
 func FixedSize(k reflect.Kind) int {
+	// FixedSize returns the byte width for fixed-size primitive kinds.
+	// Returns -1 for non-fixed kinds.
 	switch k {
 	case reflect.Bool, reflect.Int8, reflect.Uint8:
 		return 1
@@ -36,6 +38,7 @@ func FixedSize(k reflect.Kind) int {
 }
 
 func writeVarUint(buf []byte, x uint64) []byte {
+	// writeVarUint appends LEB128-style varint encoding to buf.
 	for x >= 0x80 {
 		buf = append(buf, byte(x)|0x80)
 		x >>= 7
@@ -82,6 +85,8 @@ func setUnsafeFixed(dst reflect.Value, b []byte, k reflect.Kind, sliceLen int) {
 	}
 }
 func setFixed(dst reflect.Value, b []byte, k reflect.Kind) {
+	// setFixed decodes a fixed-size primitive value from b and sets dst.
+	// It expects b to be at least the appropriate width for k.
 	switch k {
 	case reflect.Bool:
 		dst.SetBool(b[0] != 0)
@@ -109,6 +114,9 @@ func setFixed(dst reflect.Value, b []byte, k reflect.Kind) {
 }
 
 func readVarUint(b []byte) (uint64, int) {
+	// readVarUint decodes a varint from the front of b returning the value
+	// and the number of bytes consumed. If b does not contain a full varint,
+	// returns (0, 0).
 	var x uint64
 	var s uint
 	for i, c := range b {

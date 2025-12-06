@@ -3,16 +3,19 @@
 ![Test and Benchmark](https://github.com/rawbytedev/Fractus/actions/workflows/test-and-bench.yml/badge.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/rawbytedev/Fractus)](https://goreportcard.com/report/github.com/rawbytedev/Fractus)
 
-Fractus is a lightweight, serialization library for Go.  
-It encodes and decodes structs into a compact binary format with support for:
+Fractus is a lightweight, serialization library for Go.
+It encodes and decodes structs into a compact binary format focused on
+low allocations and high throughput.
 
-- Fixed-size primitive types (`int8`, `int16`, `int32`, `int64`, `uint*`, `float32`, `float64`, `bool`)
-- Variable-size types (`string`, `[]byte`, slices of primitives/strings/byte slices)
-- Struct pointers
-- Presence bitmaps for optional fields
-- Unsafe zero-copy string decoding (optional)
+Supported types:
 
-The goal is **fast, reproducible encoding/decoding** with fewer allocations(zero-allocs).
+- Fixed-size primitives (`int8`, `int16`, `int32`, `int64`, `uint*`, `float32`, `float64`, `bool`)
+- Variable-size types (`string`, `[]byte`, slices of primitives/strings)
+- Struct pointers (encoded by value)
+- Optional unsafe zero-copy modes for strings and primitive slices (opt-in)
+
+The goal is fast, deterministic encoding/decoding with a small allocation
+footprint. See `docs/FORMAT.md` for the wire-format specification.
 
 ---
 
@@ -20,8 +23,7 @@ The goal is **fast, reproducible encoding/decoding** with fewer allocations(zero
 
 - **Struct encoding/decoding**: Works with exported fields of Go structs.
 - **Slices and strings**: Handles variable-length data with varint length prefixes.
-- **Presence bitmap**: Marks which fields are present.
-- **Unsafe string mode**: Zero-copy decoding of strings (caller must ensure buffer lifetime).
+- **Unsafe modes**: `SafeOptions` toggles zero-copy for strings and primitive slices.
 - **Fuzz & property-based tests**: Ensures round-trip correctness.
 
 ---
@@ -53,7 +55,7 @@ type Example struct {
 }
 
 func main() {
-    f := &fractus{}
+    f := fractus.NewFractus(fractus.SafeOptions{})
 
     val := Example{Name: "Alice", Age: 30, Scores: []float64{95.5, 88.0}}
     data, err := f.Encode(val)
@@ -80,7 +82,8 @@ Fractus aims to minimize allocations and improve throughput:
 go test -bench=. -benchmem
 ```
 
-With buffer pooling and unsafe string mode, allocations can be reduced further.
+With buffer reuse and optional unsafe modes, allocations can be reduced
+significantly for hot-path encoders and decoders.
 
 ---
 
@@ -100,11 +103,16 @@ go test ./...
 
 ## Important
 
-- **UnsafeStrings**: When enabled, decoded strings reference the original buffer.  
-  Ensure the buffer outlives the string usage, or disable this option for safe copies.
+- **UnsafeStrings**: When enabled, decoded strings may alias the original buffer.
+    Ensure the buffer outlives the string usage, or disable this option for safe copies.
 - **Unexported fields**: Skipped during encoding.
-- **Unsupported types**: Maps, interfaces, complex numbers, and nested slices (except `[]byte`) are not supported.
-- Dev version achieve 0 allocs encoding/decoding(still experimental): [https://rawbytedev/fractus/dev](https://github.com/rawbytedev/Fractus/tree/dev)
+- **Unsupported types**: Maps, interfaces, complex numbers, and nested slices
+    (except `[]byte`) are not supported.
+
+Benchmarks and format
+---------------------
+- Benchmarks are available in `fractus_bench_test.go` (run with `go test -bench=. -benchmem`).
+- Wire-format is documented in `docs/FORMAT.md`.
 
 ---
 
