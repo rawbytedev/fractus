@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func BenchmarkFractusZeroAllocs(b *testing.B) {
+func BenchmarkEncode_ZeroAllocs(b *testing.B) {
 	type ZeroAllocs struct{ Int int8 }
 	z := ZeroAllocs{Int: int8(1)}
 	f := NewFractus(SafeOptions{UnsafePrimitives: false})
@@ -14,7 +14,7 @@ func BenchmarkFractusZeroAllocs(b *testing.B) {
 	}
 }
 
-func BenchmarkFractusEncoding(b *testing.B) {
+func BenchmarkEncode_MixedTypes(b *testing.B) {
 	type NewStruct struct {
 		Val      []string
 		Mod      []int8
@@ -33,7 +33,7 @@ func BenchmarkFractusEncoding(b *testing.B) {
 	}
 }
 
-func BenchmarkFractusUnsafeEncoding(b *testing.B) {
+func BenchmarkEncode_MixedTypes_UnsafeStrings(b *testing.B) {
 	type NewStruct struct {
 		Val      []string
 		Mod      []int8
@@ -52,7 +52,7 @@ func BenchmarkFractusUnsafeEncoding(b *testing.B) {
 	}
 }
 
-func BenchmarkFractusDecoding(b *testing.B) {
+func BenchmarkDecode_MixedTypes(b *testing.B) {
 	type NewStruct struct {
 		Val      []string
 		Mod      []int8
@@ -74,7 +74,7 @@ func BenchmarkFractusDecoding(b *testing.B) {
 	}
 }
 
-func BenchmarkFractusUnsafeDecoding(b *testing.B) {
+func BenchmarkDecode_MixedTypes_Unsafe(b *testing.B) {
 	type NewStruct struct {
 		Val      []string
 		Mod      []int8
@@ -95,7 +95,7 @@ func BenchmarkFractusUnsafeDecoding(b *testing.B) {
 	}
 }
 
-func BenchmarkFractusBasic(b *testing.B) {
+func BenchmarkRoundTrip_Primitives(b *testing.B) {
 	type NewStructint struct {
 		Int1 uint8
 		Int2 int8
@@ -116,7 +116,7 @@ func BenchmarkFractusBasic(b *testing.B) {
 	}
 }
 
-func BenchmarkFractusDouble(b *testing.B) {
+func BenchmarkEncode_NoAllocs_Double(b *testing.B) {
 	type NewStructint struct {
 		Int1 uint8
 		Int2 int8
@@ -140,4 +140,17 @@ func BenchmarkFractusDouble(b *testing.B) {
 	}
 	_ = err
 	f.Decode(res, y)
+}
+
+func BenchmarkDecode_WithSafeDecoder(b *testing.B) {
+	type T struct{ S string }
+	f := NewFractus(SafeOptions{UnsafeStrings: true})
+	v := T{S: "bench-payload"}
+	data, _ := f.Encode(v)
+	sd := NewSafeDecoder(f)
+	var out T
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		sd.Decode(data, &out)
+	}
 }

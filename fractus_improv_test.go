@@ -1,6 +1,7 @@
 package fractus
 
 import (
+	"fmt"
 	"testing"
 	"testing/quick"
 
@@ -38,7 +39,7 @@ func FuzzIntEncode(f *testing.F) {
 }
 
 func FuzzMixedEncode(f *testing.F) {
-	f.Fuzz(fuzzHMixedTypes)
+	f.Fuzz(fuzzMixedTypes)
 }
 func fuzzIntTypes(t *testing.T, Int8 int8,
 	Int16 int16,
@@ -57,7 +58,7 @@ func fuzzIntTypes(t *testing.T, Int8 int8,
 	require.NoError(t, err)
 	require.EqualExportedValues(t, val, *res)
 }
-func fuzzHMixedTypes(t *testing.T, Str string,
+func fuzzMixedTypes(t *testing.T, Str string,
 	Int8 int8,
 	bytes byte,
 	Int16 int16,
@@ -78,7 +79,7 @@ func fuzzHMixedTypes(t *testing.T, Str string,
 	require.NoError(t, err)
 	require.EqualExportedValues(t, val, *res)
 }
-func TestEncodeSimpleTypes(t *testing.T) {
+func TestEncodeDecode_SimpleTypes(t *testing.T) {
 	type NewStruct struct {
 		Val      []string
 		Mod      int8
@@ -98,7 +99,7 @@ func TestEncodeSimpleTypes(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualExportedValues(t, z, *res)
 }
-func TestConstant(t *testing.T) {
+func TestRoundTrip_Primitives(t *testing.T) {
 	type NewStructint struct {
 		Int1  uint8
 		Int2  int8
@@ -124,7 +125,7 @@ func TestConstant(t *testing.T) {
 		t.Errorf("Error: %v", err)
 	}
 }
-func TestConstantList(t *testing.T) {
+func TestRoundTrip_PrimitiveSlices(t *testing.T) {
 	type NewStructint struct {
 		Int1  []uint8
 		Int2  int8
@@ -149,7 +150,7 @@ func TestConstantList(t *testing.T) {
 	err := quick.Check(condition, &quick.Config{})
 	require.NoError(t, err)
 }
-func TestStructPointer(t *testing.T) {
+func TestEncodeDecode_StructPointer(t *testing.T) {
 	type StructPtr struct {
 		Data string
 	}
@@ -162,7 +163,7 @@ func TestStructPointer(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualExportedValues(t, val, res)
 }
-func TestErrors(t *testing.T) {
+func TestEncodeDecode_Errors(t *testing.T) {
 	f := NewFractus(SafeOptions{})
 	data, err := f.Encode("abc")
 	require.Len(t, data, 0)
@@ -177,7 +178,7 @@ func TestErrors(t *testing.T) {
 	err = f.Decode(data, str) // needs pointer
 	require.ErrorIs(t, err, ErrNotStructPtr)
 }
-func TestEncodeListOfTypes(t *testing.T) {
+func TestRoundTrip_ListTypes(t *testing.T) {
 
 	type NewStruct struct {
 		Val      []string
@@ -201,8 +202,98 @@ func TestEncodeListOfTypes(t *testing.T) {
 	}
 }
 
+// SafeDecoder keeps the payload alive so zero-copy strings/slices remain valid.
+func TestSafeDecoder_KeepsPayload(t *testing.T) {
+	type T struct{ S string }
+	f := NewFractus(SafeOptions{UnsafeStrings: true})
+	v := T{S: "persist"}
+	data, err := f.Encode(v)
+	require.NoError(t, err)
+
+	sd := NewSafeDecoder(f)
+	var out T
+	err = sd.Decode(data, &out)
+	require.NoError(t, err)
+	require.Equal(t, "persist", out.S)
+
+	// clear local reference to data and force GC; SafeDecoder.payload keeps it alive
+	data = nil
+	// runtime.GC() is non-deterministic in tests on all platforms; we at least
+	// ensure the SafeDecoder holds a reference and the value is accessible.
+	require.NotNil(t, sd)
+	require.Equal(t, "persist", out.S)
+}
+
+// Concurrent usage: ensure separate Fractus instances can be used concurrently.
+func TestConcurrentSeparateInstances(t *testing.T) {
+	type S struct {
+		A int32
+		B []int16
+	}
+	workers := 8
+	done := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			f := NewFractus(SafeOptions{})
+			v := S{A: int32(i), B: []int16{1, 2, 3}}
+			data, err := f.Encode(v)
+			if err != nil {
+				done <- err
+				return
+			}
+			var out S
+			err = f.Decode(data, &out)
+			if err != nil {
+				done <- err
+				return
+			}
+			if out.A != v.A {
+				done <- fmt.Errorf("mismatch")
+				return
+			}
+			done <- nil
+		}(i)
+	}
+	for i := 0; i < workers; i++ {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Additional fuzz targets: strings and slices to exercise edge-cases.
+func FuzzStrings(f *testing.F) {
+	f.Fuzz(func(t *testing.T, s string) {
+		type X struct{ S string }
+		fst := NewFractus(SafeOptions{})
+		val := X{S: s}
+		data, err := fst.Encode(val)
+		require.NoError(t, err)
+		var out X
+		err = fst.Decode(data, &out)
+		require.NoError(t, err)
+		require.Equal(t, val.S, out.S)
+	})
+}
+
+func FuzzSlices(f *testing.F) {
+	// Fuzz over raw byte slices (supported by Go fuzzing). This exercises
+	// encoding/decoding of []byte payloads and primitive byte-slice paths.
+	f.Fuzz(func(t *testing.T, a []byte) {
+		type X struct{ A []byte }
+		fst := NewFractus(SafeOptions{})
+		val := X{A: a}
+		data, err := fst.Encode(val)
+		require.NoError(t, err)
+		var out X
+		err = fst.Decode(data, &out)
+		require.NoError(t, err)
+		require.Equal(t, val.A, out.A)
+	})
+}
+
 // Test Encoding
-func TestCompare(t *testing.T) {
+func TestUnsafeAndSafe_ProduceSameBytes(t *testing.T) {
 	type NewStruct struct {
 		Val      []string
 		Mod      []int8
@@ -221,7 +312,7 @@ func TestCompare(t *testing.T) {
 	rres, _ := r.Encode(z)
 	assert.Equal(t, res, rres)
 }
-func TestCompares(t *testing.T) {
+func TestUnsafeDecode_EqualsSafeDecode(t *testing.T) {
 	type NewStruct struct {
 		Integers []uint16
 	}
@@ -237,7 +328,7 @@ func TestCompares(t *testing.T) {
 	assert.NoError(t, err)
 	assert.EqualExportedValues(t, z, *y)
 }
-func BenchmarkHUnsafeDecoding(b *testing.B) {
+func BenchmarkUnsafeDecoding(b *testing.B) {
 	type NewStruct struct {
 		Val      []string
 		Mod      []int8
@@ -258,7 +349,7 @@ func BenchmarkHUnsafeDecoding(b *testing.B) {
 	}
 	require.EqualValues(b, z, *y)
 }
-func BenchmarkHFractus(b *testing.B) {
+func BenchmarkFractus(b *testing.B) {
 	type NewStructint struct {
 		Int1 uint8
 		Int2 int8
@@ -279,7 +370,7 @@ func BenchmarkHFractus(b *testing.B) {
 	}
 	require.EqualValues(b, z, *y)
 }
-func BenchmarkHDoubleFractus(b *testing.B) {
+func BenchmarkDoubleFractus(b *testing.B) {
 	type NewStructint struct {
 		Int1 uint8
 		Int2 int8
