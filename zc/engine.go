@@ -4,10 +4,25 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	db "fractus/pkg/dbflat"
-	"github.com/klauspost/compress/zstd"
 	"fractus/internal/common"
+
+	"github.com/klauspost/compress/zstd"
 )
+
+type zc struct {
+	buff []byte
+	*HotRecord
+}
+type HotRecord struct {
+	vt         []byte
+	payloadHot []byte
+	tagwalk    []byte
+	out        []byte
+}
+
+func NewZeroCopy() *zc {
+	return &zc{HotRecord: &HotRecord{}}
+}
 
 // buildHotBitmap for tags 1–8 (duplicate from dbflat)
 func buildHotBitmap(tags []uint16) byte {
@@ -21,16 +36,16 @@ func buildHotBitmap(tags []uint16) byte {
 }
 
 // encodeHeader serializes Header into buf (duplicate of dbflat.encodeHeader)
-func encodeHeader(buf []byte, h db.Header) []byte {
-	if h.Flags&db.FlagNoSchemaID != 0 {
-		buf = append(buf, make([]byte, db.HeaderSize-8)...)
+func encodeHeader(buf []byte, h Header) []byte {
+	if h.Flags&FlagNoSchemaID != 0 {
+		buf = append(buf, make([]byte, HeaderSize-8)...)
 	} else {
-		buf = append(buf, make([]byte, db.HeaderSize)...)
+		buf = append(buf, make([]byte, HeaderSize)...)
 	}
 	binary.LittleEndian.PutUint32(buf[0:], h.Magic)
 	binary.LittleEndian.PutUint16(buf[4:], h.Version)
 	binary.LittleEndian.PutUint16(buf[6:], h.Flags)
-	if h.Flags&db.FlagNoSchemaID != 0 {
+	if h.Flags&FlagNoSchemaID != 0 {
 		buf[8] = h.HotBitmap
 		buf[9] = h.VTableSlots
 		binary.LittleEndian.PutUint16(buf[10:], h.DataOffset)
@@ -48,14 +63,14 @@ func encodeHeader(buf []byte, h db.Header) []byte {
 
 // compressData / decompressData copied from dbflat.compress.go
 func compressData(compFlags uint16, raw []byte) ([]byte, error) {
-	switch compFlags &^ db.ArrayMask {
-	case db.CompRaw:
+	switch compFlags &^ ArrayMask {
+	case CompRaw:
 		return raw, nil
-	case db.CompRLE:
+	case CompRLE:
 		return rleEncode(raw), nil
-	case db.CompHuffman:
+	case CompHuffman:
 		return huffmanEncode(raw)
-	case db.CompZstd:
+	case CompZstd:
 		bestLevel := zstd.WithEncoderLevel(zstd.SpeedBetterCompression)
 		enc, err := zstd.NewWriter(nil, bestLevel)
 		if err != nil {
@@ -71,12 +86,11 @@ func rleEncode(src []byte) []byte              { return make([]byte, 0) }
 func huffmanEncode(src []byte) ([]byte, error) { return make([]byte, 0), nil }
 
 // GenTagWalk generates a tag-walk payload (tag+compflag+[varint len]+payload...)
-func GenTagWalk(fields []db.FieldValue) []byte {
-	// Estimate capacity: each field has 4 bytes (tag+compflags) + payload + possible varint(<=10)
+func GenTagWalk(fields []FieldValue) []byte {
 	est := 0
 	for _, f := range fields {
 		est += 4 + len(f.Payload)
-		if f.CompFlags&db.ArrayMask != 0 {
+		if f.CompFlags&ArrayMask != 0 {
 			est += 10
 		}
 	}
@@ -89,10 +103,10 @@ func GenTagWalk(fields []db.FieldValue) []byte {
 		cf := field.CompFlags
 		tmp = append(tmp, byte(cf), byte(cf>>8))
 
-			// if array, write varint length directly into tmp without allocating
-			if field.CompFlags&db.ArrayMask != 0 {
-				tmp = common.WriteVarUintTo(tmp, uint64(len(field.Payload)))
-			}
+		// if array, write varint length directly into tmp without allocating
+		if field.CompFlags&ArrayMask != 0 {
+			tmp = common.WriteVarUintTo(tmp, uint64(len(field.Payload)))
+		}
 
 		// append payload
 		tmp = append(tmp, field.Payload...)
@@ -101,44 +115,99 @@ func GenTagWalk(fields []db.FieldValue) []byte {
 }
 
 // EncodeRecordTagWalk is a convenience wrapper that returns the TagWalk payload.
-func EncodeRecordTagWalk(fields []db.FieldValue) ([]byte, error) {
+func EncodeRecordTagWalk(fields []FieldValue) ([]byte, error) {
 	return GenTagWalk(fields), nil
 }
 
 // EncodeRecordHot builds a hot-vtable record (header + vtable for hot fields + payloadHot + tagwalk coldfields)
 // This is a simplified port of pkg/dbflat Encoder.EncodeRecordHot but kept here so zc can be independently tested.
-func EncodeRecordHot(schemaID uint64, hotTags []uint16, fields []db.FieldValue) ([]byte, error) {
+func (r *HotRecord) EncodeRecordHot(schemaID uint64, hotTags []uint16, fields []FieldValue) ([]byte, error) {
+	r.Reset()
 	// validate hotTags
 	for _, h := range hotTags {
 		if h == 0 || h > 8 {
 			return nil, fmt.Errorf("invalid hot field tag: %d", h)
 		}
 	}
-
 	// Partition
-	hot, cold := db.PartitionFields(fields, hotTags)
-
+	hot, cold := PartitionFields(fields, hotTags)
+	var hotOffsets []offsetLoc
 	// Generate hot payload and offsets
-	payloadHot, hotOffsets := GenPayloads(hot)
+	r.payloadHot, hotOffsets = GenPayloads(hot)
 
 	// vtable for hot
-	vt := GeneVtables(hotOffsets)
+	r.vt = GeneVtables(hotOffsets)
 
 	// tagwalk for cold
-	tagwalk := GenTagWalk(cold)
+	r.tagwalk = GenTagWalk(cold)
 
 	// Build header
-	header := db.BuildHeader(vt, &db.LayoutPlan{HeaderFlags: db.FlagPadding | db.FlagModeHotVtable, SchemaID: schemaID, HotTags: hotTags})
+	header := BuildHeader(r.vt, &LayoutPlan{HeaderFlags: FlagPadding | FlagModeHotVtable, SchemaID: schemaID, HotTags: hotTags})
 	headerBytes := encodeHeader(nil, *header)
-
 	// Join header + vtable + payloadHot + tagwalk
-	out := make([]byte, 0, len(headerBytes)+len(vt)+len(payloadHot)+len(tagwalk))
-	out = append(out, headerBytes...)
-	out = append(out, vt...)
-	out = append(out, payloadHot...)
-	out = append(out, tagwalk...)
+	maxSize := len(headerBytes) + len(r.vt) + len(r.payloadHot) + len(r.tagwalk)
+	if cap(r.out) < maxSize {
+		r.out = make([]byte, 0, maxSize)
+	} else {
+		r.out = r.out[:maxSize]
+	}
+	r.out = append(r.out, headerBytes...)
+	r.out = append(r.out, r.vt...)
+	r.out = append(r.out, r.payloadHot...)
+	r.out = append(r.out, r.tagwalk...)
 
-	return out, nil
+	return r.out, nil
+}
+func (r *HotRecord) Reset() {
+	r.vt = r.vt[:0]
+	r.payloadHot = r.payloadHot[:0]
+	r.tagwalk = r.tagwalk[:0]
+	r.out = r.out[:0]
+}
+
+// PartitionFields splits fields into hot and cold slices based on hotTags.
+// - Only fields present in both the input and hotTags are considered hot.
+// - The function is O(n) in the number of fields, with O(1) hot tag lookup.
+// - If a tag is in hotTags but not present in fields, it is ignored (no wasted search).
+func PartitionFields(fields []FieldValue, hotTags []uint16) ([]FieldValue, []FieldValue) {
+	// Build a set for fast hot tag lookup
+	hotSet := make(map[uint16]struct{}, len(hotTags))
+	for _, tag := range hotTags {
+		hotSet[tag] = struct{}{}
+	}
+	var hot, cold []FieldValue
+	for _, f := range fields {
+		if _, isHot := hotSet[f.Tag]; isHot {
+			hot = append(hot, f)
+		} else {
+			cold = append(cold, f)
+		}
+	}
+	return hot, cold
+}
+func BuildHeader(vtable []byte, plan *LayoutPlan) *Header {
+	if vtable != nil {
+		h := &Header{
+			Magic:       MagicV1,
+			Version:     VersionV1,
+			Flags:       plan.HeaderFlags,
+			SchemaID:    plan.SchemaID,
+			HotBitmap:   buildHotBitmap(plan.HotTags),
+			VTableSlots: byte(len(vtable) / 8),
+			DataOffset:  uint16(HeaderSize + len(vtable)),
+			VTableOff:   uint32(HeaderSize),
+		}
+		return h
+	}
+	return nil
+
+}
+
+type LayoutPlan struct {
+	Fields      []FieldValue // input fields
+	HotTags     []uint16     // tags to prioritize
+	HeaderFlags uint16       // layout control
+	SchemaID    uint64       // optional
 }
 
 // Helpers: GenPayloads and GeneVtables duplicated but using db types
@@ -148,14 +217,14 @@ type offsetLoc struct {
 	offset   uint32
 }
 
-func GenPayloads(fields []db.FieldValue) ([]byte, []offsetLoc) {
+func GenPayloads(fields []FieldValue) ([]byte, []offsetLoc) {
 	var tmp []byte
 	next := 0
 	// fieldbuf removed; using writeVarUintTo to write directly into tmp
 	var offmap []offsetLoc
 	for _, field := range fields {
 		// Handle compression
-		if field.CompFlags&^db.ArrayMask != db.CompRaw {
+		if field.CompFlags&^ArrayMask != CompRaw {
 			// compress payload and prefix with uncompressed length varint
 			comp, err := compressData(field.CompFlags, field.Payload)
 			if err == nil {
@@ -167,7 +236,7 @@ func GenPayloads(fields []db.FieldValue) ([]byte, []offsetLoc) {
 			}
 			// if compression failed, fall back to raw payload
 		}
-		if field.CompFlags&db.ArrayMask != 0 {
+		if field.CompFlags&ArrayMask != 0 {
 			tmp = common.WriteVarUintTo(tmp, uint64(len(field.Payload)))
 		}
 		tmp = append(tmp, field.Payload...)

@@ -2,15 +2,16 @@ package zc
 
 import (
 	"bytes"
+	"encoding/binary"
 	db "fractus/pkg/dbflat"
 	"testing"
 )
 
-func makeTestFields(shape string) []db.FieldValue {
+func makeTestFields(shape string) []FieldValue {
 	switch shape {
 	case "skinny":
 		a, _ := db.Write(uint32(300))
-		return []db.FieldValue{
+		return []FieldValue{
 			{Tag: uint16(1), Payload: []byte("Hello I'm Test 1"), CompFlags: 0x8000},
 			{Tag: uint16(2), Payload: []byte("Hello I'm Test 2"), CompFlags: 0x0000 | 0x8000},
 			{Tag: uint16(3), Payload: []byte("Hello I'm Test Comp+10"), CompFlags: 0x0000 | 0x8000},
@@ -45,7 +46,8 @@ func TestEncodeRecordHot_Basic(t *testing.T) {
 	fields := makeTestFields("skinny")
 	hotTags := []uint16{1, 2}
 	schemaID := uint64(112)
-	out, err := EncodeRecordHot(schemaID, hotTags, fields)
+	zc := NewZeroCopy()
+	out, err := zc.EncodeRecordHot(schemaID, hotTags, fields)
 	if err != nil {
 		t.Fatalf("EncodeRecordHot error: %v", err)
 	}
@@ -59,5 +61,46 @@ func TestEncodeRecordHot_Basic(t *testing.T) {
 	}
 	if hdr.Flags&db.FlagModeHotVtable == 0 {
 		t.Fatalf("expected FlagModeHotVtable to be set in header flags")
+	}
+}
+
+func TestEncodeHot_CompressionRoundTrip(t *testing.T) {
+	// Hot compressed field should round-trip (decoder decompresses)
+	orig := []byte("This is some compressible data: hello hello hello hello")
+	fields := []FieldValue{
+		{Tag: 1, CompFlags: db.CompZstd, Payload: orig},
+		{Tag: 9, CompFlags: 0x8000, Payload: []byte("cold field")},
+	}
+	hot := []uint16{1}
+	zc := NewZeroCopy()
+	out, err := zc.EncodeRecordHot(0x1234, hot, fields)
+	if err != nil {
+		t.Fatalf("EncodeRecordHot error: %v", err)
+	}
+	var dec db.Decoder
+	m, err := dec.DecodeRecord(out, nil)
+	if err != nil {
+		t.Fatalf("DecodeRecord error: %v", err)
+	}
+	if !bytes.Equal(m[1], orig) {
+		t.Fatalf("compressed hot field roundtrip mismatch: got %v", m[1])
+	}
+}
+
+func TestTagWalk_ArrayRoundTrip(t *testing.T) {
+	// array payload should be returned verbatim by TagWalk decoder
+	// build payload with two uint32s
+	payload := make([]byte, 8)
+	binary.LittleEndian.PutUint32(payload[0:], 0xDEADBEEF)
+	binary.LittleEndian.PutUint32(payload[4:], 0xCAFEBABE)
+	fields := []FieldValue{{Tag: 1, CompFlags: db.ArrayMask, Payload: payload}}
+	enc := GenTagWalk(fields)
+	var dec db.Decoder
+	m, _, err := dec.DecodeRecordTagWalk(enc, 0, nil)
+	if err != nil {
+		t.Fatalf("DecodeRecordTagWalk error: %v", err)
+	}
+	if !bytes.Equal(m[1], payload) {
+		t.Fatalf("tagwalk array payload mismatch")
 	}
 }

@@ -2,8 +2,6 @@ package dbflat
 
 import (
 	"bytes"
-	"fmt"
-	"os"
 	"sort"
 	"testing"
 
@@ -176,18 +174,18 @@ func BenchmarkEncode_Skinny(b *testing.B) {
 // Speed is reduced due to list ordering
 func BenchmarkEncodeUnordered_Heavy(b *testing.B) {
 	fields := makeTestFields("heavy")
-	schemaID := uint64(112)
-	hotTags := []uint16{
+	//schemaID := uint64(112)
+	/*hotTags := []uint16{
 		uint16(1),
 		uint16(2),
 		uint16(3),
-	}
+	}*/
 	b.ReportAllocs()
 	buf := make([]byte, 0, 1024)
 	var e Encoder
 	var out []byte
 	for b.Loop() {
-		out, _ = e.EncodeRecordFull(schemaID, hotTags, fields)
+		out, _ = e.EncodeRecordTagWorK(fields)
 	}
 
 	buf = buf[:0] // GC-friendly reuse
@@ -218,7 +216,6 @@ func BenchmarkEncodeordered_Heavy(b *testing.B) {
 	b.SetBytes(int64(len(buf))) // MB/s
 }
 
-/*
 	func BenchmarkEncode_SkinnyHotVtable(b *testing.B) {
 		fields := makeTestFields("skinny")
 		schemaID := uint64(112)
@@ -239,7 +236,7 @@ func BenchmarkEncodeordered_Heavy(b *testing.B) {
 		buf = append(buf, out...)
 		b.SetBytes(int64(len(buf))) // MB/s
 	}
-*/
+
 func TestDecodeRecordHot(t *testing.T) {
 	field := makeTestFields("skinny")
 	schemaID := uint64(112)
@@ -663,42 +660,7 @@ func TestLayoutTagWalk(t *testing.T) {
 // ------------------------------------------------------------------------------
 // Schema Test
 // ------------------------------------------------------------------------------
-func TestSchemaSave(t *testing.T) {
-	fields := makeTestFields("skinny")
-	sches := FieldValue_Schema(fields)
-	marshdata, err := SaveSchemaYAMLBin(sches)
-	if err != nil {
-		t.Fatal(err)
-	}
-	file, err := os.Create("out.marsh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	file.Write(marshdata)
-	file.Close()
-}
 
-func TestLoadSchema(t *testing.T) {
-	type trans struct {
-		sender   string
-		receiver string
-		amount   uint64
-		txID     []byte
-	}
-	tx := trans{
-		sender:   "aren",
-		receiver: "walid",
-		amount:   uint64(123),
-		txID:     []byte("azerty"),
-	}
-	a, err := LoadSchema("out.marsh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	field := EncodeStruct(*a, tx)
-	fmt.Print(field)
-
-}
 func BenchmarkStructFieldValu(t *testing.B) {
 	type trans struct {
 		name     string
