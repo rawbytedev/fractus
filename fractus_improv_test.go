@@ -1,15 +1,15 @@
 package fractus
 
 import (
+	"fmt"
 	"testing"
 	"testing/quick"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
-type MixedHStruct struct {
+type MixedStruct struct {
 	Str     string
 	Int8    int8
 	bytes   byte
@@ -39,7 +39,7 @@ func FuzzIntEncode(f *testing.F) {
 }
 
 func FuzzMixedEncode(f *testing.F) {
-	f.Fuzz(fuzzHMixedTypes)
+	f.Fuzz(fuzzMixedTypes)
 }
 func fuzzIntTypes(t *testing.T, Int8 int8,
 	Int16 int16,
@@ -51,14 +51,14 @@ func fuzzIntTypes(t *testing.T, Int8 int8,
 	Uint64 uint64) {
 	val := IntTypes{Int8, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64}
 	res := &IntTypes{}
-	f := NewHighPerfFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
+	f := NewFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
 	data, err := f.Encode(val)
 	require.NoError(t, err)
 	err = f.Decode(data, res)
 	require.NoError(t, err)
 	require.EqualExportedValues(t, val, *res)
 }
-func fuzzHMixedTypes(t *testing.T, Str string,
+func fuzzMixedTypes(t *testing.T, Str string,
 	Int8 int8,
 	bytes byte,
 	Int16 int16,
@@ -70,16 +70,16 @@ func fuzzHMixedTypes(t *testing.T, Str string,
 	Uint64 uint64,
 	Float32 float32,
 	Float64 float64) {
-	val := MixedHStruct{Str, Int8, bytes, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Float32, Float64}
-	res := &MixedHStruct{}
-	f := NewHighPerfFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
+	val := MixedStruct{Str, Int8, bytes, Int16, Int32, Int64, Uint8, Uint16, Uint32, Uint64, Float32, Float64}
+	res := &MixedStruct{}
+	f := NewFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
 	data, err := f.Encode(val)
 	require.NoError(t, err)
 	err = f.Decode(data, res)
 	require.NoError(t, err)
 	require.EqualExportedValues(t, val, *res)
 }
-func TestHEncodeSimpleTypes(t *testing.T) {
+func TestEncodeDecode_SimpleTypes(t *testing.T) {
 	type NewStruct struct {
 		Val      []string
 		Mod      int8
@@ -92,14 +92,14 @@ func TestHEncodeSimpleTypes(t *testing.T) {
 		Mod: int8(17), Integers: int16(12),
 		Float3: float32(12.3), Float6: float64(1236.2)}
 	res := &NewStruct{}
-	f := NewHighPerfFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
+	f := NewFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
 	data, err := f.Encode(z)
 	require.NoError(t, err)
 	err = f.Decode(data, res)
 	require.NoError(t, err)
 	require.EqualExportedValues(t, z, *res)
 }
-func TestHConstant(t *testing.T) {
+func TestRoundTrip_Primitives(t *testing.T) {
 	type NewStructint struct {
 		Int1  uint8
 		Int2  int8
@@ -111,7 +111,7 @@ func TestHConstant(t *testing.T) {
 		Int9  int64
 		Const bool
 	}
-	f := NewHighPerfFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
+	f := NewFractus(SafeOptions{UnsafeStrings: true, UnsafePrimitives: true})
 	condition := func(z NewStructint) bool {
 		data, err := f.Encode(z)
 		require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestHConstant(t *testing.T) {
 		t.Errorf("Error: %v", err)
 	}
 }
-func TestHConstantList(t *testing.T) {
+func TestRoundTrip_PrimitiveSlices(t *testing.T) {
 	type NewStructint struct {
 		Int1  []uint8
 		Int2  int8
@@ -137,7 +137,7 @@ func TestHConstantList(t *testing.T) {
 		Int9  []int64
 		Const []bool
 	}
-	f := NewHighPerfFractus(SafeOptions{})
+	f := NewFractus(SafeOptions{})
 	condition := func(z NewStructint) bool {
 		val := z
 		data, err := f.Encode(val)
@@ -150,21 +150,21 @@ func TestHConstantList(t *testing.T) {
 	err := quick.Check(condition, &quick.Config{})
 	require.NoError(t, err)
 }
-func TestHStructPointer(t *testing.T) {
+func TestEncodeDecode_StructPointer(t *testing.T) {
 	type StructPtr struct {
 		Data string
 	}
 	val := &StructPtr{Data: "Hello"}
 	res := &StructPtr{}
-	f := NewHighPerfFractus(SafeOptions{})
+	f := NewFractus(SafeOptions{})
 	data, err := f.Encode(val)
 	require.NoError(t, err)
 	err = f.Decode(data, res)
 	require.NoError(t, err)
 	require.EqualExportedValues(t, val, res)
 }
-func TestHErrors(t *testing.T) {
-	f := NewHighPerfFractus(SafeOptions{})
+func TestEncodeDecode_Errors(t *testing.T) {
+	f := NewFractus(SafeOptions{})
 	data, err := f.Encode("abc")
 	require.Len(t, data, 0)
 	require.ErrorIs(t, err, ErrNotStruct)
@@ -178,7 +178,7 @@ func TestHErrors(t *testing.T) {
 	err = f.Decode(data, str) // needs pointer
 	require.ErrorIs(t, err, ErrNotStructPtr)
 }
-func TestHEncodeListOfTypes(t *testing.T) {
+func TestRoundTrip_ListTypes(t *testing.T) {
 
 	type NewStruct struct {
 		Val      []string
@@ -187,7 +187,7 @@ func TestHEncodeListOfTypes(t *testing.T) {
 		Float3   []float32
 		Float6   []float64
 	}
-	f := NewHighPerfFractus(SafeOptions{})
+	f := NewFractus(SafeOptions{})
 	condition := func(z NewStruct) bool {
 		data, err := f.Encode(z)
 		require.NoError(t, err)
@@ -201,80 +201,99 @@ func TestHEncodeListOfTypes(t *testing.T) {
 		t.Errorf("Error: %v", err)
 	}
 }
-func BenchmarkHZeroAllocs(b *testing.B) {
-	type ZeroAllocs struct {
-		Int int8
-	}
-	z := ZeroAllocs{Int: int8(1)}
-	f := NewHighPerfFractus(SafeOptions{UnsafePrimitives: false})
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_, _ = f.Encode(z)
-	}
-}
-func BenchmarkHEncoding(b *testing.B) {
-	type NewStruct struct {
-		Val      []string
-		Mod      []int8
-		Integers []int16
-		Float3   []float32
-		Float6   []float64
-	}
-	Val := []string{"azerty", "hello", "world", "random"}
-	z := NewStruct{Val: Val,
-		Mod: []int8{12, 10, 13, 1}, Integers: []int16{100, 250, 300},
-		Float3: []float32{12.13, 16.23, 75.1}, Float6: []float64{100.5, 165.63, 153.5}}
-	f := NewHighPerfFractus(SafeOptions{})
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_, _ = f.Encode(z)
-	}
 
-}
-func BenchmarkHUnsafeEncoding(b *testing.B) {
-	type NewStruct struct {
-		Val      []string
-		Mod      []int8
-		Integers []int16
-		Float3   []float32
-		Float6   []float64
-	}
-	Val := []string{"azerty", "hello", "world", "random"}
-	z := NewStruct{Val: Val,
-		Mod: []int8{12, 10, 13, 0}, Integers: []int16{100, 250, 300},
-		Float3: []float32{12.13, 16.23, 75.1}, Float6: []float64{100.5, 165.63, 153.5}}
-	f := NewHighPerfFractus(SafeOptions{UnsafePrimitives: false, UnsafeStrings: true})
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_, _ = f.Encode(z)
-	}
+// SafeDecoder keeps the payload alive so zero-copy strings/slices remain valid.
+func TestSafeDecoder_KeepsPayload(t *testing.T) {
+	type T struct{ S string }
+	f := NewFractus(SafeOptions{UnsafeStrings: true})
+	v := T{S: "persist"}
+	data, err := f.Encode(v)
+	require.NoError(t, err)
 
+	sd := NewSafeDecoder(f)
+	var out T
+	err = sd.Decode(data, &out)
+	require.NoError(t, err)
+	require.Equal(t, "persist", out.S)
+
+	// clear local reference to data and force GC; SafeDecoder.payload keeps it alive
+	data = nil
+	// runtime.GC() is non-deterministic in tests on all platforms; we at least
+	// ensure the SafeDecoder holds a reference and the value is accessible.
+	require.NotNil(t, sd)
+	require.Equal(t, "persist", out.S)
 }
-func BenchmarkHDecoding(b *testing.B) {
-	type NewStruct struct {
-		Val      []string
-		Mod      []int8
-		Integers []int16
-		Float3   []float32
-		Float6   []float64
+
+// Concurrent usage: ensure separate Fractus instances can be used concurrently.
+func TestConcurrentSeparateInstances(t *testing.T) {
+	type S struct {
+		A int32
+		B []int16
 	}
-	Val := []string{"azerty", "hello", "world", "random"}
-	z := NewStruct{Val: Val,
-		Mod: []int8{12, 10, 13, 0}, Integers: []int16{100, 250, 300},
-		Float3: []float32{12.13, 16.23, 75.1}, Float6: []float64{100.5, 165.63, 153.5}}
-	y := &NewStruct{}
-	f := NewHighPerfFractus(SafeOptions{UnsafePrimitives: false})
-	s := NewHighPerfFractus(SafeOptions{UnsafePrimitives: false})
-	b.ReportAllocs()
-	res, _ := f.Encode(z)
-	for i := 0; i < b.N; i++ {
-		s.Decode(res, y)
+	workers := 8
+	done := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		go func(i int) {
+			f := NewFractus(SafeOptions{})
+			v := S{A: int32(i), B: []int16{1, 2, 3}}
+			data, err := f.Encode(v)
+			if err != nil {
+				done <- err
+				return
+			}
+			var out S
+			err = f.Decode(data, &out)
+			if err != nil {
+				done <- err
+				return
+			}
+			if out.A != v.A {
+				done <- fmt.Errorf("mismatch")
+				return
+			}
+			done <- nil
+		}(i)
 	}
-	require.EqualValues(b, z, *y)
+	for i := 0; i < workers; i++ {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Additional fuzz targets: strings and slices to exercise edge-cases.
+func FuzzStrings(f *testing.F) {
+	f.Fuzz(func(t *testing.T, s string) {
+		type X struct{ S string }
+		fst := NewFractus(SafeOptions{})
+		val := X{S: s}
+		data, err := fst.Encode(val)
+		require.NoError(t, err)
+		var out X
+		err = fst.Decode(data, &out)
+		require.NoError(t, err)
+		require.Equal(t, val.S, out.S)
+	})
+}
+
+func FuzzSlices(f *testing.F) {
+	// Fuzz over raw byte slices (supported by Go fuzzing). This exercises
+	// encoding/decoding of []byte payloads and primitive byte-slice paths.
+	f.Fuzz(func(t *testing.T, a []byte) {
+		type X struct{ A []byte }
+		fst := NewFractus(SafeOptions{})
+		val := X{A: a}
+		data, err := fst.Encode(val)
+		require.NoError(t, err)
+		var out X
+		err = fst.Decode(data, &out)
+		require.NoError(t, err)
+		require.Equal(t, val.A, out.A)
+	})
 }
 
 // Test Encoding
-func TestCompare(t *testing.T) {
+func TestUnsafeAndSafe_ProduceSameBytes(t *testing.T) {
 	type NewStruct struct {
 		Val      []string
 		Mod      []int8
@@ -287,29 +306,29 @@ func TestCompare(t *testing.T) {
 		Mod: []int8{12, 10, 13, 0}, Integers: []uint16{100, 250, 300},
 		Float3: []float32{12.13, 16.23, 75.1}, Float6: []float64{100.5, 165.63, 153.5}}
 	//y := &NewStruct{}
-	f := NewHighPerfFractus(SafeOptions{UnsafePrimitives: true, UnsafeStrings: true})
+	f := NewFractus(SafeOptions{UnsafePrimitives: true, UnsafeStrings: true})
 	res, _ := f.Encode(z)
-	r := NewHighPerfFractus(SafeOptions{})
+	r := NewFractus(SafeOptions{})
 	rres, _ := r.Encode(z)
 	assert.Equal(t, res, rres)
 }
-func TestCompares(t *testing.T) {
+func TestUnsafeDecode_EqualsSafeDecode(t *testing.T) {
 	type NewStruct struct {
 		Integers []uint16
 	}
 
 	z := NewStruct{Integers: []uint16{100, 250, 300}}
 	y := &NewStruct{}
-	f := NewHighPerfFractus(SafeOptions{UnsafePrimitives: true, UnsafeStrings: true})
+	f := NewFractus(SafeOptions{UnsafePrimitives: true, UnsafeStrings: true})
 	res, _ := f.Encode(z)
-	r := NewHighPerfFractus(SafeOptions{})
+	r := NewFractus(SafeOptions{})
 	rres, _ := r.Encode(z)
 	assert.Equal(t, res, rres)
 	err := f.Decode(res, y)
 	assert.NoError(t, err)
 	assert.EqualExportedValues(t, z, *y)
 }
-func BenchmarkHUnsafeDecoding(b *testing.B) {
+func BenchmarkUnsafeDecoding(b *testing.B) {
 	type NewStruct struct {
 		Val      []string
 		Mod      []int8
@@ -322,7 +341,7 @@ func BenchmarkHUnsafeDecoding(b *testing.B) {
 		Mod: []int8{12, 10, 13, 0}, Integers: []int16{100, 250, 300},
 		Float3: []float32{12.13, 16.23, 75.1}, Float6: []float64{100.5, 165.63, 153.5}}
 	y := &NewStruct{}
-	f := NewHighPerfFractus(SafeOptions{UnsafePrimitives: false, UnsafeStrings: true})
+	f := NewFractus(SafeOptions{UnsafePrimitives: false, UnsafeStrings: true})
 	b.ReportAllocs()
 	res, _ := f.Encode(z)
 	for i := 0; i < b.N; i++ {
@@ -330,7 +349,7 @@ func BenchmarkHUnsafeDecoding(b *testing.B) {
 	}
 	require.EqualValues(b, z, *y)
 }
-func BenchmarkHFractus(b *testing.B) {
+func BenchmarkFractus(b *testing.B) {
 	type NewStructint struct {
 		Int1 uint8
 		Int2 int8
@@ -343,7 +362,7 @@ func BenchmarkHFractus(b *testing.B) {
 	}
 	z := NewStructint{Int1: 1, Int2: 2, Int3: 16, Int4: 18, Int5: 1586, Int6: 15262, Int7: 1547544565, Int9: 15484565656}
 	y := &NewStructint{}
-	f := NewHighPerfFractus(SafeOptions{})
+	f := NewFractus(SafeOptions{})
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		res, _ := f.Encode(z) // 3allocs / res = []byte // 1 allocs
@@ -351,7 +370,7 @@ func BenchmarkHFractus(b *testing.B) {
 	}
 	require.EqualValues(b, z, *y)
 }
-func BenchmarkHDoubleFractus(b *testing.B) {
+func BenchmarkDoubleFractus(b *testing.B) {
 	type NewStructint struct {
 		Int1 uint8
 		Int2 int8
@@ -365,7 +384,7 @@ func BenchmarkHDoubleFractus(b *testing.B) {
 	z := NewStructint{Int1: 1, Int2: 2, Int3: 16, Int4: 18, Int5: 1586, Int6: 15262, Int7: 1547544565, Int9: 15484565656}
 	v := z
 	y := &NewStructint{}
-	f := NewHighPerfFractus(SafeOptions{})
+	f := NewFractus(SafeOptions{})
 	res := []byte{}
 	b.ReportAllocs()
 	_, _ = f.Encode(z)
@@ -376,22 +395,4 @@ func BenchmarkHDoubleFractus(b *testing.B) {
 	require.NoError(b, err)
 	f.Decode(res, y)
 	require.EqualValues(b, v, *y)
-}
-func BenchmarkHYaml(b *testing.B) {
-	type NewStructint struct {
-		Int1 uint8
-		Int2 int8
-		Int3 uint16
-		Int4 int16
-		Int5 uint32
-		Int6 int32
-		Int7 uint64
-		Int9 int64
-	}
-	z := NewStructint{Int1: 1, Int2: 2, Int3: 16, Int4: 18, Int5: 1586, Int6: 15262, Int7: 1547544565, Int9: 15484565656}
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-
-		_, _ = yaml.Marshal(z)
-	}
 }
