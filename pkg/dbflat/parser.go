@@ -6,7 +6,6 @@ import (
 	//"gopkg.in/yaml.v2"
 )
 
-
 func encodeHeader(buf []byte, h Header) []byte {
 	if h.Flags&FlagNoSchemaID != 0 {
 		buf = append(buf, make([]byte, HeaderSize-8)...)

@@ -43,10 +43,10 @@ Future Improvements:
 /*
 Example usage:
 
-func (s *StructType) Decode(data []byte) error {
-	// Implement decoding logic here
-	return nil
-}
+	func (s *StructType) Decode(data []byte) error {
+		// Implement decoding logic here
+		return nil
+	}
 */
 func BinToStruct(inter any, bin []byte, loc map[uint16]string) error {
 	// inter must be a pointer to struct

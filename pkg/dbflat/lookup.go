@@ -12,7 +12,7 @@ func HotFieldWidth(c uint16) int {
 	f := map[uint16]int{
 		1: 4,
 		2: 4,
-		4:8,
+		4: 8,
 	}
 	return f[c]
 }

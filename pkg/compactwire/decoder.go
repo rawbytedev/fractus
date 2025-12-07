@@ -80,7 +80,7 @@ func (e *ErrorFrame) DecodeErrorFrame(data []byte) (byte, []byte, error) {
 	return code, custom, nil
 }
 
-func (y *HandshakeFrame)DecodeHandshake(data []byte) (HandshakeFrame, error) {
+func (y *HandshakeFrame) DecodeHandshake(data []byte) (HandshakeFrame, error) {
 	var h HandshakeFrame
 	buf := bytes.NewReader(data)
 	t, err := readPreamble(buf)

@@ -12,16 +12,16 @@ package zc
 
 // Options contains runtime flags controlling zero-copy behaviour.
 type Options struct {
-    // UnsafeStrings allows converting []byte -> string without copy.
-    UnsafeStrings bool
+	// UnsafeStrings allows converting []byte -> string without copy.
+	UnsafeStrings bool
 
-    // UnsafePrimitives allows aliasing primitive slices (e.g. []uint32)
-    // into []byte without copying when alignment rules are satisfied.
-    UnsafePrimitives bool
+	// UnsafePrimitives allows aliasing primitive slices (e.g. []uint32)
+	// into []byte without copying when alignment rules are satisfied.
+	UnsafePrimitives bool
 
-    // CheckAlignment enables runtime alignment checks before performing
-    // zero-copy aliasing.
-    CheckAlignment bool
+	// CheckAlignment enables runtime alignment checks before performing
+	// zero-copy aliasing.
+	CheckAlignment bool
 }
 
 // Encoder/Decoder entrypoints will be added here. For now this file

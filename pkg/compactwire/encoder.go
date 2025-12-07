@@ -6,10 +6,8 @@ import (
 	"hash/crc32"
 )
 
-
-
 // EncodeDataFrame serializes a payload with optional offset table.
-func (d *DataFrame)EncodeDataFrame(payload []byte, flags byte, offsets []uint32) ([]byte, error) {
+func (d *DataFrame) EncodeDataFrame(payload []byte, flags byte, offsets []uint32) ([]byte, error) {
 	d.buf = &bytes.Buffer{}
 	writePreamble(d.buf, TypeData)
 
@@ -41,7 +39,7 @@ func (d *DataFrame)EncodeDataFrame(payload []byte, flags byte, offsets []uint32)
 }
 
 // EncodeErrorFrame builds an Error Frame with code and custom data.
-func (e *ErrorFrame)EncodeErrorFrame(code byte, data []byte) ([]byte, error) {
+func (e *ErrorFrame) EncodeErrorFrame(code byte, data []byte) ([]byte, error) {
 	e.buf = &bytes.Buffer{}
 	writePreamble(e.buf, TypeError)
 
@@ -60,7 +58,7 @@ func (e *ErrorFrame)EncodeErrorFrame(code byte, data []byte) ([]byte, error) {
 	return out, nil
 }
 
-func (y *HandshakeFrame)EncodeHandshake(h HandshakeFrame) ([]byte, error) {
+func (y *HandshakeFrame) EncodeHandshake(h HandshakeFrame) ([]byte, error) {
 	buf := &bytes.Buffer{}
 	writePreamble(buf, TypeHandshake)
 

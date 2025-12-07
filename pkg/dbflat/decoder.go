@@ -226,7 +226,7 @@ func (d *Decoder) DecodeRecordHot(buf []byte) (map[uint16][]byte, error) {
 // Decode a Tagwalk record
 // uses offset for positioning and optional tagmaps->lenght
 func (d *Decoder) DecodeRecordTagWalk(buf []byte, off int, fmaps map[uint16]int) (map[uint16][]byte, int, error) {
-	if len(buf) <= off+1{
+	if len(buf) <= off+1 {
 		return nil, 0, ErrBufferEmpty
 	}
 	if d.fieldsOut == nil {
