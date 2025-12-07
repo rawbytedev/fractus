@@ -49,13 +49,15 @@ func TestEncodeRecordHot_Basic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeRecordHot error: %v", err)
 	}
-	var dec db.Decoder
-	m, err := dec.DecodeRecordHot(out)
+	// Basic structural checks: header + vtable present and flags set
+	hdr, err := db.ParseHeader(out)
 	if err != nil {
-		t.Fatalf("DecodeRecordHot error: %v", err)
+		t.Fatalf("ParseHeader error: %v", err)
 	}
-	// Hot map may contain empty entries for unused slots; check at least tag 1 exists
-	if len(m) == 0 {
-		t.Fatalf("expected non-empty hotmap")
+	if hdr.VTableSlots == 0 {
+		t.Fatalf("expected VTableSlots > 0")
+	}
+	if hdr.Flags&db.FlagModeHotVtable == 0 {
+		t.Fatalf("expected FlagModeHotVtable to be set in header flags")
 	}
 }

@@ -140,6 +140,21 @@ func GenPayloads(fields []db.FieldValue) ([]byte, []offsetLoc) {
 	var fieldbuf []byte
 	var offmap []offsetLoc
 	for _, field := range fields {
+		// Handle compression
+		if field.CompFlags&^db.ArrayMask != db.CompRaw {
+			// compress payload and prefix with uncompressed length varint
+			comp, err := compressData(field.CompFlags, field.Payload)
+			if err == nil {
+				fieldbuf = writeVarUint(fieldbuf, uint64(len(comp)))
+				tmp = append(tmp, fieldbuf...)
+				fieldbuf = fieldbuf[:0]
+				tmp = append(tmp, comp...)
+				offmap = append(offmap, offsetLoc{tag: field.Tag, compflag: field.CompFlags, offset: uint32(next)})
+				next = len(tmp)
+				continue
+			}
+			// if compression failed, fall back to raw payload
+		}
 		if field.CompFlags&db.ArrayMask != 0 {
 			fieldbuf = writeVarUint(fieldbuf, uint64(len(field.Payload)))
 			tmp = append(tmp, fieldbuf...)
