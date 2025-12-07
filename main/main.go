@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fractus"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -9,6 +8,8 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"time"
+
+	"github.com/rawbytedev/fractus"
 )
 
 func main() {
