@@ -47,6 +47,21 @@ func writeVarUint(buf []byte, x uint64) []byte {
 	return append(buf, byte(x))
 }
 
+// writeVarUintTo appends varint-encoded x to dst using a small stack scratch
+// to avoid allocating a temporary slice. Returns the extended dst.
+func writeVarUintTo(dst []byte, x uint64) []byte {
+	var scratch [10]byte
+	i := 0
+	for x >= 0x80 {
+		scratch[i] = byte(x) | 0x80
+		x >>= 7
+		i++
+	}
+	scratch[i] = byte(x)
+	i++
+	return append(dst, scratch[:i]...)
+}
+
 func readVarUint(b []byte) (uint64, int) {
 	var x uint64
 	var s uint

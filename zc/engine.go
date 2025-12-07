@@ -6,6 +6,7 @@ import (
 	"fmt"
 	db "fractus/pkg/dbflat"
 	"github.com/klauspost/compress/zstd"
+	"fractus/internal/common"
 )
 
 // buildHotBitmap for tags 1–8 (duplicate from dbflat)
@@ -71,17 +72,30 @@ func huffmanEncode(src []byte) ([]byte, error) { return make([]byte, 0), nil }
 
 // GenTagWalk generates a tag-walk payload (tag+compflag+[varint len]+payload...)
 func GenTagWalk(fields []db.FieldValue) []byte {
-	var tmp []byte
-	var varint []byte
-	for _, field := range fields {
-		tmp = append(tmp, db.ToBytes(field.Tag)...)
-		tmp = append(tmp, db.ToBytes(field.CompFlags)...)
-		if field.CompFlags&db.ArrayMask != 0 {
-			tmp = append(tmp, writeVarUint(varint, uint64(len(field.Payload)))...)
-			varint = varint[0:]
+	// Estimate capacity: each field has 4 bytes (tag+compflags) + payload + possible varint(<=10)
+	est := 0
+	for _, f := range fields {
+		est += 4 + len(f.Payload)
+		if f.CompFlags&db.ArrayMask != 0 {
+			est += 10
 		}
-		tmp = append(tmp, field.Payload...)
+	}
+	tmp := make([]byte, 0, est)
+	for _, field := range fields {
+		// append tag (uint16 little-endian)
+		tag := field.Tag
+		tmp = append(tmp, byte(tag), byte(tag>>8))
+		// append compFlags (uint16 little-endian)
+		cf := field.CompFlags
+		tmp = append(tmp, byte(cf), byte(cf>>8))
 
+			// if array, write varint length directly into tmp without allocating
+			if field.CompFlags&db.ArrayMask != 0 {
+				tmp = common.WriteVarUintTo(tmp, uint64(len(field.Payload)))
+			}
+
+		// append payload
+		tmp = append(tmp, field.Payload...)
 	}
 	return tmp
 }
@@ -137,7 +151,7 @@ type offsetLoc struct {
 func GenPayloads(fields []db.FieldValue) ([]byte, []offsetLoc) {
 	var tmp []byte
 	next := 0
-	var fieldbuf []byte
+	// fieldbuf removed; using writeVarUintTo to write directly into tmp
 	var offmap []offsetLoc
 	for _, field := range fields {
 		// Handle compression
@@ -145,9 +159,7 @@ func GenPayloads(fields []db.FieldValue) ([]byte, []offsetLoc) {
 			// compress payload and prefix with uncompressed length varint
 			comp, err := compressData(field.CompFlags, field.Payload)
 			if err == nil {
-				fieldbuf = writeVarUint(fieldbuf, uint64(len(comp)))
-				tmp = append(tmp, fieldbuf...)
-				fieldbuf = fieldbuf[:0]
+				tmp = common.WriteVarUintTo(tmp, uint64(len(comp)))
 				tmp = append(tmp, comp...)
 				offmap = append(offmap, offsetLoc{tag: field.Tag, compflag: field.CompFlags, offset: uint32(next)})
 				next = len(tmp)
@@ -156,9 +168,7 @@ func GenPayloads(fields []db.FieldValue) ([]byte, []offsetLoc) {
 			// if compression failed, fall back to raw payload
 		}
 		if field.CompFlags&db.ArrayMask != 0 {
-			fieldbuf = writeVarUint(fieldbuf, uint64(len(field.Payload)))
-			tmp = append(tmp, fieldbuf...)
-			fieldbuf = fieldbuf[:0]
+			tmp = common.WriteVarUintTo(tmp, uint64(len(field.Payload)))
 		}
 		tmp = append(tmp, field.Payload...)
 		offmap = append(offmap, offsetLoc{tag: field.Tag, compflag: field.CompFlags, offset: uint32(next)})
