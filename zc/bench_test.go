@@ -25,8 +25,9 @@ func benchFieldsdb(count int) []db.FieldValue {
 func Benchmark_GenTagWalk_zc(b *testing.B) {
 	fields := benchFields(8)
 	b.ReportAllocs()
+	zc := NewZeroCopy()
 	for i := 0; i < b.N; i++ {
-		_ = GenTagWalk(fields)
+		_ = zc.GenTagWalk(fields)
 	}
 }
 
@@ -41,8 +42,9 @@ func Benchmark_GenTagWalk_db(b *testing.B) {
 func Benchmark_EncodeRecordTagWalk_zc(b *testing.B) {
 	fields := benchFields(8)
 	b.ReportAllocs()
+	zc := NewZeroCopy()
 	for i := 0; i < b.N; i++ {
-		_, _ = EncodeRecordTagWalk(fields)
+		_, _ = zc.EncodeRecordTagWalk(fields)
 	}
 }
 

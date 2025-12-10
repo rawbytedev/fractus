@@ -24,7 +24,8 @@ func makeTestFields(shape string) []FieldValue {
 
 func TestGenTagWalk_DecodeRoundTrip(t *testing.T) {
 	fields := makeTestFields("skinny")
-	payload, err := EncodeRecordTagWalk(fields)
+	zc := NewZeroCopy()
+	payload, err := zc.EncodeRecordTagWalk(fields)
 	if err != nil {
 		t.Fatalf("EncodeRecordTagWalk error: %v", err)
 	}
@@ -71,11 +72,23 @@ func TestEncodeHot_CompressionRoundTrip(t *testing.T) {
 		{Tag: 1, CompFlags: db.CompZstd, Payload: orig},
 		{Tag: 9, CompFlags: 0x8000, Payload: []byte("cold field")},
 	}
+	fields2 := []db.FieldValue{
+		{Tag: 1, CompFlags: db.CompZstd, Payload: orig},
+		{Tag: 9, CompFlags: 0x8000, Payload: []byte("cold field")},
+	}
 	hot := []uint16{1}
 	zc := NewZeroCopy()
 	out, err := zc.EncodeRecordHot(0x1234, hot, fields)
 	if err != nil {
 		t.Fatalf("EncodeRecordHot error: %v", err)
+	}
+	var enc db.Encoder
+	out2, err := enc.EncodeRecordHot(0x1234, hot, fields2)
+	if !bytes.Equal(out, out2) {
+		t.Log(out)
+		t.Log("2Nd")
+		t.Log(out2)
+		t.Fatal("incorrect")
 	}
 	var dec db.Decoder
 	m, err := dec.DecodeRecord(out, nil)
@@ -94,7 +107,8 @@ func TestTagWalk_ArrayRoundTrip(t *testing.T) {
 	binary.LittleEndian.PutUint32(payload[0:], 0xDEADBEEF)
 	binary.LittleEndian.PutUint32(payload[4:], 0xCAFEBABE)
 	fields := []FieldValue{{Tag: 1, CompFlags: db.ArrayMask, Payload: payload}}
-	enc := GenTagWalk(fields)
+	zc := NewZeroCopy()
+	enc := zc.GenTagWalk(fields)
 	var dec db.Decoder
 	m, _, err := dec.DecodeRecordTagWalk(enc, 0, nil)
 	if err != nil {

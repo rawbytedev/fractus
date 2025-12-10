@@ -271,7 +271,7 @@ func (e *Encoder) EncodeRecordHot(schemaID uint64, hotTags []uint16, fields []Fi
 	e.headerBuf = encodeHeader(e.headerBuf[:0], Header{
 		Magic:       MagicV1,
 		Version:     VersionV1,
-		Flags:       0x0001,
+		Flags:       0x0001 | 0x0004,
 		SchemaID:    schemaID,
 		HotBitmap:   buildHotBitmap(hotTags),
 		VTableSlots: byte(len(hotfields)),

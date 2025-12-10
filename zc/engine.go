@@ -86,7 +86,7 @@ func rleEncode(src []byte) []byte              { return make([]byte, 0) }
 func huffmanEncode(src []byte) ([]byte, error) { return make([]byte, 0), nil }
 
 // GenTagWalk generates a tag-walk payload (tag+compflag+[varint len]+payload...)
-func GenTagWalk(fields []FieldValue) []byte {
+func (z *zc) GenTagWalk(fields []FieldValue) []byte {
 	est := 0
 	for _, f := range fields {
 		est += 4 + len(f.Payload)
@@ -98,10 +98,10 @@ func GenTagWalk(fields []FieldValue) []byte {
 	for _, field := range fields {
 		// append tag (uint16 little-endian)
 		tag := field.Tag
-		tmp = append(tmp, byte(tag), byte(tag>>8))
+		tmp = append(tmp, byte(tag), byte(tag<<8))
 		// append compFlags (uint16 little-endian)
 		cf := field.CompFlags
-		tmp = append(tmp, byte(cf), byte(cf>>8))
+		tmp = append(tmp, byte(cf), byte(cf<<8))
 
 		// if array, write varint length directly into tmp without allocating
 		if field.CompFlags&ArrayMask != 0 {
@@ -115,13 +115,13 @@ func GenTagWalk(fields []FieldValue) []byte {
 }
 
 // EncodeRecordTagWalk is a convenience wrapper that returns the TagWalk payload.
-func EncodeRecordTagWalk(fields []FieldValue) ([]byte, error) {
-	return GenTagWalk(fields), nil
+func (r *zc) EncodeRecordTagWalk(fields []FieldValue) ([]byte, error) {
+	return r.GenTagWalk(fields), nil
 }
 
 // EncodeRecordHot builds a hot-vtable record (header + vtable for hot fields + payloadHot + tagwalk coldfields)
 // This is a simplified port of pkg/dbflat Encoder.EncodeRecordHot but kept here so zc can be independently tested.
-func (r *HotRecord) EncodeRecordHot(schemaID uint64, hotTags []uint16, fields []FieldValue) ([]byte, error) {
+func (r *zc) EncodeRecordHot(schemaID uint64, hotTags []uint16, fields []FieldValue) ([]byte, error) {
 	r.Reset()
 	// validate hotTags
 	for _, h := range hotTags {
@@ -139,7 +139,7 @@ func (r *HotRecord) EncodeRecordHot(schemaID uint64, hotTags []uint16, fields []
 	r.vt = GeneVtables(hotOffsets)
 
 	// tagwalk for cold
-	r.tagwalk = GenTagWalk(cold)
+	r.tagwalk = r.GenTagWalk(cold)
 
 	// Build header
 	header := BuildHeader(r.vt, &LayoutPlan{HeaderFlags: FlagPadding | FlagModeHotVtable, SchemaID: schemaID, HotTags: hotTags})
